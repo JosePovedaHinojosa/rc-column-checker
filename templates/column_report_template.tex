@@ -1,0 +1,119 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1.8cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,booktabs,longtable,array,graphicx,fancyhdr,xcolor}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\IfFileExists{../../logo_black_horizontal.png}{\includegraphics[width=5cm]{../../logo_black_horizontal.png}}{}}
+\fancyhead[R]{PROYECTO: <<pry_name>>}
+\setlength{\headheight}{37.6pt}
+\fancyfoot[C]{\thepage}
+\begin{document}
+\begin{center}
+{\LARGE Memoria de c\'alculo de columna RC}\\[4pt]
+{\large <<column_id>>}
+\end{center}
+
+\section*{Resumen del input}
+\begin{minipage}[t]{0.60\textwidth}
+\vspace{0pt}
+\begin{tabular}{ll}
+\toprule
+Par\'ametro & Valor \\
+\midrule
+Column ID & <<column_id>> \\
+Story & <<story>> \\
+Frame type & <<frame_type>> \\
+$b$ [mm] & <<b_mm>> \\
+$h$ [mm] & <<h_mm>> \\
+Cover [mm] & <<cover_mm>> \\
+$l_{clear}$ [mm] & <<clear_height_mm>> \\
+$l_u$ [mm] & <<lu_mm>> \\
+$f'_c$ [MPa] & <<fc_MPa>> \\
+$f_y$ long [MPa] & <<fy_long_MPa>> \\
+$f_{yt}$ [MPa] & <<fy_trans_MPa>> \\
+Barras top/bot/left/right & <<bars_faces>> \\
+\bottomrule
+\end{tabular}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.30\textwidth}
+\vspace{0pt}
+\centering
+\includegraphics[width=\textwidth]{../../sections/<<section_key>>.png}
+\end{minipage}
+
+\section*{Propiedades derivadas}
+\begin{tabular}{ll}
+\toprule
+Propiedad & Valor \\
+\midrule
+$A_g$ [mm$^2$] & <<Ag_mm2>> \\
+$A_{ch}$ [mm$^2$] & <<Ach_mm2>> \\
+$A_s$ [mm$^2$] & <<As_mm2>> \\
+$n_l$ soportadas [-] & <<n_lateral_supported_bars>> \\
+$h_x$ max [mm] & <<hx_mm>> \\
+$l_{o,x}$ [mm] & <<lo_x_mm>> \\
+$l_{o,y}$ [mm] & <<lo_y_mm>> \\
+\bottomrule
+\end{tabular}
+
+\section*{Capacidades de la columna}
+Capacidad axial nominal aproximada:
+\[
+P_{n0} = 0.85 f'_c(A_g-A_s) + f_y A_s
+\]
+\[
+\phi P_{n0} = 0.65 P_{n0}
+\]
+\begin{tabular}{ll}
+\toprule
+Magnitud & Valor \\
+\midrule
+$P_{n0}$ [kN] & <<Pn0_kN>> \\
+$\phi P_{n0}$ [kN] & <<phiPn0_kN>> \\
+$M_{n0,x}$ [kN\,m] & <<Mn0_x_kNm>> \\
+$\phi M_{n0,x}$ [kN\,m] & <<phiMn0_x_kNm>> \\
+$M_{pr0,x}$ [kN\,m] & <<Mpr0_x_kNm>> \\
+$M_{n0,y}$ [kN\,m] & <<Mn0_y_kNm>> \\
+$\phi M_{n0,y}$ [kN\,m] & <<phiMn0_y_kNm>> \\
+$M_{pr0,y}$ [kN\,m] & <<Mpr0_y_kNm>> \\
+\bottomrule
+\end{tabular}
+
+La flexi\'on se calcula con una secci\'on rectangular usando compatibilidad de deformaciones, $\varepsilon_c=0.003$, bloque de Whitney y acero bilineal. Es una idealizaci\'on simplificada de la secci\'on real.
+
+Capacidad de corte base en longitudes $l_o$:
+\[
+V_n = V_c + V_s
+\]
+\[
+V_c = 0.17\sqrt{f'_c} b_w d, \qquad V_s = \frac{A_v f_{yt} d}{s}
+\]
+\begin{tabular}{llll}
+\toprule
+Eje & $V_c$ [kN] & $V_s$ [kN] & $\phi V_n$ [kN] \\
+\midrule
+x & <<Vc_x_kN>> & <<Vs_x_kN>> & <<phiVn_x_kN>> \\
+y & <<Vc_y_kN>> & <<Vs_y_kN>> & <<phiVn_y_kN>> \\
+\bottomrule
+\end{tabular}
+
+<<static_checks_section>>
+
+<<beam_section>>
+
+<<joint_section>>
+
+<<rotation_section>>
+
+<<load_table_section>>
+
+<<critical_checks_section>>
+
+<<pm_figs_section>>
+
+\end{document}

@@ -1,0 +1,5 @@
+beam_section_id,bw_mm,h_mm,cover_mm,fc_MPa,fy_long_MPa,fy_trans_MPa,n_bars_top,db_top_mm,n_bars_bot,db_bot_mm,stirrup_db_mm
+BSEC_X_INT,300,600,40,50,420,420,12,16,8,16,10
+BSEC_X_ALT,350,650,40,50,420,420,10,20,8,20,10
+BSEC_Y_INT,300,700,40,50,420,420,8,16,8,16,10
+BSEC_Y_ROOF,250,500,40,50,420,420,6,16,4,16,10

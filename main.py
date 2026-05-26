@@ -1,0 +1,362 @@
+from __future__ import annotations
+
+import argparse
+from collections import defaultdict
+from pathlib import Path
+
+from aci_longitudinal_checks import longitudinal_checks
+from aci_transverse_checks import transverse_checks
+from asce41_rotation import compute_asce41_rotation
+from geometry_utils import compute_geometry
+from io_utils import read_inputs
+from pm_diagram import export_pm_diagram
+from reporting import build_latex_report, slugify, write_csv
+from section_capacity import (
+    compute_beam_actions,
+    column_strengths_at_Pu,
+    interaction_points,
+    joint_capacity_static,
+    joint_shear_demand_case,
+    probable_shear_for_column,
+    pure_axial_capacity,
+    pure_flexure_capacity,
+    shear_capacity_base,
+    shear_capacity_case,
+    strong_column_weak_beam,
+)
+
+
+def overall_status(check_rows):
+    statuses = {r['status'] for r in check_rows}
+    if 'NG' in statuses:
+        return 'NG'
+    if 'WARNING' in statuses:
+        return 'WARNING'
+    return 'OK'
+
+
+def parse_report_columns(value: str | None) -> set[str]:
+    if not value:
+        return set()
+    return {v.strip() for v in value.split(',') if v.strip()}
+
+
+def add_ratio_check(checks, row, name, provided, required, code_ref, message):
+    checks.append({
+        'column_id': row['column_id'], 'load_case': row.get('load_case', 'U1'), 'check_name': name,
+        'status': 'OK' if provided <= required else 'NG', 'provided': round(provided, 3), 'required': f'<= {required:.3f}',
+        'code_ref': code_ref, 'message': message,
+    })
+
+
+def add_min_check(checks, row, name, provided, required, code_ref, message):
+    checks.append({
+        'column_id': row['column_id'], 'load_case': row.get('load_case', 'U1'), 'check_name': name,
+        'status': 'OK' if provided >= required else 'NG', 'provided': round(provided, 3), 'required': f'>= {required:.3f}',
+        'code_ref': code_ref, 'message': message,
+    })
+
+
+def add_info_check(checks, row, name, value, code_ref, message):
+    checks.append({
+        'column_id': row['column_id'], 'load_case': row.get('load_case', 'ALL'), 'check_name': name,
+        'status': 'INFO', 'provided': value, 'required': '-', 'code_ref': code_ref, 'message': message,
+    })
+
+
+def add_warning_flag(checks, row, name, flag, code_ref, message_if_true, message_if_false='Not triggered.'):
+    checks.append({
+        'column_id': row['column_id'], 'load_case': row.get('load_case', 'U1'), 'check_name': name,
+        'status': 'WARNING' if flag else 'OK', 'provided': bool(flag), 'required': 'False', 'code_ref': code_ref,
+        'message': message_if_true if flag else message_if_false,
+    })
+
+
+def representative_row_for_pm(rows):
+    return max(rows, key=lambda r: abs(float(r['Pu_kN'])))
+
+
+def _apply_column_section(target_row, section_row):
+    out = dict(target_row)
+    for key, value in section_row.items():
+        if key in {'column_section_id', '_row_number'}:
+            continue
+        out[key] = value
+    return out
+
+
+def resolve_other_column_mnc(section_ref, run_row, axis, column_sections_map, cache):
+    text = str(section_ref).strip()
+    low = text.lower()
+    if low in {'same', 'self', ''}:
+        return 'same'
+    if low in {'none', '0'}:
+        return 'none'
+    if text not in column_sections_map:
+        raise ValueError(f"column_id '{run_row['column_id']}' references unknown adjacent column section '{text}'")
+    key = (text, float(run_row['Pu_kN']))
+    if key not in cache:
+        other_row = _apply_column_section(run_row, column_sections_map[text])
+        geom = compute_geometry(other_row)
+        cache[key] = {
+            'x': column_strengths_at_Pu(other_row, geom, axis='x')['Mnc_kNm'],
+            'y': column_strengths_at_Pu(other_row, geom, axis='y')['Mnc_kNm'],
+        }
+    return cache[key][axis]
+
+
+def main():
+    parser = argparse.ArgumentParser(description='ACI RC column checker v18 with cleaned inputs, optional report sections, and robust empty-table rendering.')
+    parser.add_argument('--column-sections', required=True, help='Path to column-sections CSV')
+    parser.add_argument('--beam-sections', required=True, help='Path to beam-sections CSV')
+    parser.add_argument('--column-beam', required=True, help='Path to column-beam-prop CSV')
+    parser.add_argument('--loads', required=True, help='Path to loads CSV')
+    parser.add_argument('--outdir', default='outputs', help='Output directory')
+    parser.add_argument('--skip-pm', action='store_true', help='Skip P-M plot export')
+    parser.add_argument('--report-columns', default='', help='Comma-separated column_id values to generate LaTeX reports')
+    parser.add_argument('--report-all', action='store_true', help='Generate LaTeX reports for all columns')
+    parser.add_argument('--pry-name', default='', help='Project name for report header')
+    parser.add_argument('--hide-rotation-table', action='store_true', help='Hide the ASCE 41 rotation table in LaTeX reports')
+    parser.add_argument('--hide-beam-table', action='store_true', help='Hide the connected beam capacities table in LaTeX reports')
+    parser.add_argument('--hide-joint-table', action='store_true', help='Hide the joint capacity table in LaTeX reports')
+    args = parser.parse_args()
+
+    columns_map, rows, column_sections_map, beam_sections_map, column_beam_map = read_inputs(args.column_sections, args.beam_sections, args.column_beam, args.loads)
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[str(row['column_id'])].append(row)
+
+    outdir = Path(args.outdir)
+    pm_dir = outdir / 'pm_diagrams'
+    report_dir = outdir / 'latex_reports'
+    requested_reports = set(grouped.keys()) if args.report_all else parse_report_columns(args.report_columns)
+    other_col_cache = {}
+
+    results_rows = []
+    check_rows = []
+    report_contexts = []
+
+    for column_id, col_rows in grouped.items():
+        prop_row = dict(columns_map[column_id])
+        geom = compute_geometry(prop_row)
+        beam_actions = compute_beam_actions(prop_row)
+        axial = pure_axial_capacity(prop_row, geom)
+        shear_base = shear_capacity_base(prop_row, geom)
+        flexure0_x = pure_flexure_capacity(prop_row, geom, axis='x')
+        flexure0_y = pure_flexure_capacity(prop_row, geom, axis='y')
+        joint_static = joint_capacity_static(prop_row, beam_actions)
+
+        long_checks, _ = longitudinal_checks({**prop_row, 'load_case': 'ALL'}, geom)
+        pu_values = [float(r['Pu_kN']) for r in col_rows]
+        max_comp_pu = max([v for v in pu_values if v > 0.0], default=0.0)
+        ref_pu_static = max_comp_pu if max_comp_pu > 0.0 else max(abs(v) for v in pu_values)
+        tr_checks, tr_meta = transverse_checks({**prop_row, 'load_case': 'ALL', 'Pu_kN': ref_pu_static}, geom)
+        static_checks = long_checks + tr_checks
+
+        info_row = {**prop_row, 'load_case': 'ALL'}
+        add_info_check(static_checks, info_row, 'capacity_Pn0_kN', round(axial['Pn0_kN'], 1), 'ACI 22 / simplified', 'Nominal axial capacity Pn0.')
+        add_info_check(static_checks, info_row, 'capacity_phiPn0_kN', round(axial['phiPn0_kN'], 1), 'ACI 22 / simplified', 'Design axial capacity phi*Pn0.')
+        add_info_check(static_checks, info_row, 'capacity_phiVn_x_base_kN', round(shear_base['phiVn_x_kN'], 1), 'ACI 22.5 / simplified', 'Base design shear capacity in x with Vc + Vs.')
+        add_info_check(static_checks, info_row, 'capacity_phiVn_y_base_kN', round(shear_base['phiVn_y_kN'], 1), 'ACI 22.5 / simplified', 'Base design shear capacity in y with Vc + Vs.')
+        add_info_check(static_checks, info_row, 'capacity_Mn0_x_kNm', round(flexure0_x['Mn_min_kNm'], 1), 'Strain compatibility', 'Pure flexure nominal capacity at Pu = 0 in x; simplified rectangular section.')
+        add_info_check(static_checks, info_row, 'capacity_Mpr0_x_kNm', round(flexure0_x['Mpr_min_kNm'], 1), 'Strain compatibility', 'Pure flexure probable capacity at Pu = 0 in x; simplified rectangular section.')
+        add_info_check(static_checks, info_row, 'capacity_Mn0_y_kNm', round(flexure0_y['Mn_min_kNm'], 1), 'Strain compatibility', 'Pure flexure nominal capacity at Pu = 0 in y; simplified rectangular section.')
+        add_info_check(static_checks, info_row, 'capacity_Mpr0_y_kNm', round(flexure0_y['Mpr_min_kNm'], 1), 'Strain compatibility', 'Pure flexure probable capacity at Pu = 0 in y; simplified rectangular section.')
+
+        for face in ['beam_top_x', 'beam_bottom_x', 'beam_top_y', 'beam_bottom_y']:
+            add_info_check(static_checks, info_row, f'{face}_n_active', int(beam_actions[f'{face}_n_active']), 'Beam assembly', 'Number of connected beams explicitly modeled on this face.')
+            add_info_check(static_checks, info_row, f'{face}_joint_Mn_kNm', round(beam_actions[f'{face}_joint_Mn_kNm'], 1), 'Simplified beam flexure', 'Sum of connected beam nominal joint flexural strengths on this face.')
+            add_info_check(static_checks, info_row, f'{face}_joint_Mpr_kNm', round(beam_actions[f'{face}_joint_Mpr_kNm'], 1), 'Simplified beam flexure', 'Sum of connected beam probable joint flexural strengths on this face.')
+            for side in ['side1', 'side2']:
+                prefix = f'{face}_{side}'
+                if not beam_actions.get(f'{prefix}_active', False):
+                    continue
+                add_info_check(static_checks, info_row, f'{prefix}_As_top_mm2', round(beam_actions[f'{prefix}_As_top_mm2'], 1), 'Beam input auto-calc', 'Connected beam top steel area computed from n bars and diameter.')
+                add_info_check(static_checks, info_row, f'{prefix}_As_bot_mm2', round(beam_actions[f'{prefix}_As_bot_mm2'], 1), 'Beam input auto-calc', 'Connected beam bottom steel area computed from n bars and diameter.')
+                add_info_check(static_checks, info_row, f'{prefix}_joint_Mn_kNm', round(beam_actions[f'{prefix}_joint_Mn_kNm'], 1), 'Simplified beam flexure', 'Connected beam nominal joint flexural strength for this explicit beam.')
+                add_info_check(static_checks, info_row, f'{prefix}_joint_Mpr_kNm', round(beam_actions[f'{prefix}_joint_Mpr_kNm'], 1), 'Simplified beam flexure', 'Connected beam probable joint flexural strength for this explicit beam.')
+
+        for joint in ['top', 'bottom']:
+            for axis in ['x', 'y']:
+                if not joint_static.get(f'joint_{joint}_{axis}_active', False):
+                    continue
+                add_info_check(static_checks, info_row, f'joint_{joint}_{axis}_Aj_mm2', round(joint_static[f'joint_{joint}_{axis}_Aj_mm2'], 1), 'ACI R15.5.2.2', 'Effective joint area Aj.')
+                add_info_check(static_checks, info_row, f'joint_{joint}_{axis}_phiVn_kN', round(joint_static[f'joint_{joint}_{axis}_phiVn_kN'], 1), 'ACI Table 18.8.4.3', 'Design nominal joint shear strength.')
+                add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_a', 1.0 if joint_static[f'joint_{joint}_{axis}_cond_a'] else 0.0, 1.0, 'ACI 15.5.2.5(a)', 'Transverse beam width coverage criterion.')
+                add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_b', 1.0 if joint_static[f'joint_{joint}_{axis}_cond_b'] else 0.0, 1.0, 'ACI 15.5.2.5(b)', 'Transverse beam area coverage criterion.')
+                add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_c', 1.0 if joint_static[f'joint_{joint}_{axis}_cond_c'] else 0.0, 1.0, 'ACI 15.5.2.5(c)', 'Transverse beam extension beyond joint face.')
+                add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_d', 1.0 if joint_static[f'joint_{joint}_{axis}_cond_d'] else 0.0, 1.0, 'ACI 15.5.2.5(d)', 'Transverse beam longitudinal bars and stirrups.')
+
+        check_rows.extend(static_checks)
+
+        rep_row = representative_row_for_pm(col_rows)
+        pm_row = dict(prop_row)
+        pm_row.update(rep_row)
+        fy_rep = float(pm_row['fy_long_MPa'])
+        col_x_pm = {
+            'Mn_points_pos': interaction_points(pm_row, geom, axis='x', fy_long_mpa=fy_rep, compression_face='top'),
+            'Mn_points_neg': interaction_points(pm_row, geom, axis='x', fy_long_mpa=fy_rep, compression_face='bottom'),
+            'Design_points_pos': interaction_points(pm_row, geom, axis='x', fy_long_mpa=fy_rep, compression_face='top'),
+            'Design_points_neg': interaction_points(pm_row, geom, axis='x', fy_long_mpa=fy_rep, compression_face='bottom'),
+            'Mpr_points_pos': interaction_points(pm_row, geom, axis='x', fy_long_mpa=1.25 * fy_rep, compression_face='top'),
+            'Mpr_points_neg': interaction_points(pm_row, geom, axis='x', fy_long_mpa=1.25 * fy_rep, compression_face='bottom'),
+        }
+        col_y_pm = {
+            'Mn_points_pos': interaction_points(pm_row, geom, axis='y', fy_long_mpa=fy_rep, compression_face='left'),
+            'Mn_points_neg': interaction_points(pm_row, geom, axis='y', fy_long_mpa=fy_rep, compression_face='right'),
+            'Design_points_pos': interaction_points(pm_row, geom, axis='y', fy_long_mpa=fy_rep, compression_face='left'),
+            'Design_points_neg': interaction_points(pm_row, geom, axis='y', fy_long_mpa=fy_rep, compression_face='right'),
+            'Mpr_points_pos': interaction_points(pm_row, geom, axis='y', fy_long_mpa=1.25 * fy_rep, compression_face='left'),
+            'Mpr_points_neg': interaction_points(pm_row, geom, axis='y', fy_long_mpa=1.25 * fy_rep, compression_face='right'),
+        }
+
+        pm_svg_x = pm_pdf_x = pm_png_x = ''
+        pm_svg_y = pm_pdf_y = pm_png_y = ''
+        if requested_reports and column_id in requested_reports and not args.skip_pm:
+            pm_svg_x, pm_pdf_x, pm_png_x = export_pm_diagram(column_id, col_x_pm, col_rows, pm_dir, axis='x')
+            pm_svg_y, pm_pdf_y, pm_png_y = export_pm_diagram(column_id, col_y_pm, col_rows, pm_dir, axis='y')
+
+        report_case_contexts = []
+        for row in col_rows:
+            run_row = dict(prop_row)
+            run_row.update(row)
+            all_checks = []
+            col_x = column_strengths_at_Pu(run_row, geom, axis='x')
+            col_y = column_strengths_at_Pu(run_row, geom, axis='y')
+            prob_shear = probable_shear_for_column(run_row, beam_actions, col_x, col_y)
+            shear_case = shear_capacity_case(run_row, geom, prob_shear)
+            is_gravity = str(run_row.get('frame_type', '')).strip().upper().startswith('G')
+            run_row['other_col_top_x_Mnc_kNm'] = resolve_other_column_mnc(run_row.get('top_other_column_section_id', 'same'), run_row, 'x', column_sections_map, other_col_cache)
+            run_row['other_col_top_y_Mnc_kNm'] = resolve_other_column_mnc(run_row.get('top_other_column_section_id', 'same'), run_row, 'y', column_sections_map, other_col_cache)
+            run_row['other_col_bottom_x_Mnc_kNm'] = resolve_other_column_mnc(run_row.get('bottom_other_column_section_id', 'same'), run_row, 'x', column_sections_map, other_col_cache)
+            run_row['other_col_bottom_y_Mnc_kNm'] = resolve_other_column_mnc(run_row.get('bottom_other_column_section_id', 'same'), run_row, 'y', column_sections_map, other_col_cache)
+            scwb = strong_column_weak_beam(run_row, beam_actions, col_x, col_y)
+            joint_case = joint_shear_demand_case(run_row, beam_actions, prob_shear)
+
+            demand_ratio_pm_x = abs(float(run_row['Mux_kNm'])) / max(col_x['phiMn_kNm'], 1e-9)
+            demand_ratio_pm_y = abs(float(run_row['Muy_kNm'])) / max(col_y['phiMn_kNm'], 1e-9)
+            shear_ratio_x = abs(float(run_row['Vux_kN'])) / max(shear_case['phiVn_eff_x_kN'], 1e-9)
+            shear_ratio_y = abs(float(run_row['Vuy_kN'])) / max(shear_case['phiVn_eff_y_kN'], 1e-9)
+            probable_shear_ratio_x = prob_shear['Ve_design_x_kN'] / max(shear_case['phiVn_eff_x_kN'], 1e-9)
+            probable_shear_ratio_y = prob_shear['Ve_design_y_kN'] / max(shear_case['phiVn_eff_y_kN'], 1e-9)
+            asce_rot = compute_asce41_rotation(run_row, geom, v_ratio_x=max(shear_ratio_x, 0.2), v_ratio_y=max(shear_ratio_y, 0.2))
+
+            add_ratio_check(all_checks, run_row, 'pm_ratio_x', demand_ratio_pm_x, 1.0, 'Section strength', 'Factored bending demand over design flexural strength in x.')
+            add_ratio_check(all_checks, run_row, 'pm_ratio_y', demand_ratio_pm_y, 1.0, 'Section strength', 'Factored bending demand over design flexural strength in y.')
+            add_ratio_check(all_checks, run_row, 'shear_ratio_analysis_x', shear_ratio_x, 1.0, 'Section shear', 'Analysis shear demand over effective design shear strength in x.')
+            add_ratio_check(all_checks, run_row, 'shear_ratio_analysis_y', shear_ratio_y, 1.0, 'Section shear', 'Analysis shear demand over effective design shear strength in y.')
+            add_ratio_check(all_checks, run_row, 'shear_ratio_probable_x', probable_shear_ratio_x, 1.0, 'ACI 18.7.6.1', 'Probable design shear over effective design shear strength in x.')
+            add_ratio_check(all_checks, run_row, 'shear_ratio_probable_y', probable_shear_ratio_y, 1.0, 'ACI 18.7.6.1', 'Probable design shear over effective design shear strength in y.')
+            add_warning_flag(all_checks, run_row, 'Vc_zero_rule_x', bool(shear_case['vc_zero_applies_x']), 'ACI 18.7.6.2.1', 'Vc set to zero in x within lo for this load case.')
+            add_warning_flag(all_checks, run_row, 'Vc_zero_rule_y', bool(shear_case['vc_zero_applies_y']), 'ACI 18.7.6.2.1', 'Vc set to zero in y within lo for this load case.')
+            if not is_gravity:
+                add_min_check(all_checks, run_row, 'scwb_top_x', scwb['scwb_top_x_ratio'], 1.0, 'ACI 18.7.3.2', 'Strong-column weak-beam ratio at top joint in x.')
+                add_min_check(all_checks, run_row, 'scwb_bottom_x', scwb['scwb_bottom_x_ratio'], 1.0, 'ACI 18.7.3.2', 'Strong-column weak-beam ratio at bottom joint in x.')
+                add_min_check(all_checks, run_row, 'scwb_top_y', scwb['scwb_top_y_ratio'], 1.0, 'ACI 18.7.3.2', 'Strong-column weak-beam ratio at top joint in y.')
+                add_min_check(all_checks, run_row, 'scwb_bottom_y', scwb['scwb_bottom_y_ratio'], 1.0, 'ACI 18.7.3.2', 'Strong-column weak-beam ratio at bottom joint in y.')
+            add_ratio_check(all_checks, run_row, 'asce41_rot_ratio_x', asce_rot['ratio_x'], 1.0, f"ASCE 41 Table 10-8 ({asce_rot['damage_state']})", 'Plastic rotation demand/capacity ratio for RotX.')
+            add_ratio_check(all_checks, run_row, 'asce41_rot_ratio_y', asce_rot['ratio_y'], 1.0, f"ASCE 41 Table 10-8 ({asce_rot['damage_state']})", 'Plastic rotation demand/capacity ratio for RotY.')
+            for dir_key, dir_data in [('x', asce_rot['x']), ('y', asce_rot['y'])]:
+                add_info_check(all_checks, run_row, f'asce41_{dir_key}_param_a', round(dir_data['a'], 5), 'ASCE 41 Table 10-8', f'Modeling parameter a for Rot{dir_key.upper()}.')
+                add_info_check(all_checks, run_row, f'asce41_{dir_key}_param_b', round(dir_data['b'], 5), 'ASCE 41 Table 10-8', f'Modeling parameter b for Rot{dir_key.upper()}.')
+                add_info_check(all_checks, run_row, f'asce41_{dir_key}_param_c', round(dir_data['c'], 5), 'ASCE 41 Table 10-8', f'Residual strength ratio c for Rot{dir_key.upper()}.')
+                add_info_check(all_checks, run_row, f'asce41_{dir_key}_theta_io', round(dir_data['theta_io'], 5), 'ASCE 41 Table 10-8', f'IO rotation capacity for Rot{dir_key.upper()}.')
+                add_info_check(all_checks, run_row, f'asce41_{dir_key}_theta_ls', round(dir_data['theta_ls'], 5), 'ASCE 41 Table 10-8', f'LS rotation capacity for Rot{dir_key.upper()}.')
+                add_info_check(all_checks, run_row, f'asce41_{dir_key}_theta_cp', round(dir_data['theta_cp'], 5), 'ASCE 41 Table 10-8', f'CP rotation capacity for Rot{dir_key.upper()}.')
+                add_info_check(all_checks, run_row, f'asce41_{dir_key}_v_ratio', round(dir_data['vye_over_vcoloe'], 5), 'ASCE 41 Table 10-8', f'Vye/VcolOE parameter for Rot{dir_key.upper()}, automated from shear ratio but not less than 0.2.')
+            if asce_rot['warnings']:
+                add_warning_flag(all_checks, run_row, 'asce41_parameter_warning', True, 'ASCE 41 Table 10-8 notes', ' | '.join(asce_rot['warnings']))
+
+            for joint in ['top', 'bottom']:
+                for axis in ['x', 'y']:
+                    if not joint_static.get(f'joint_{joint}_{axis}_active', False):
+                        continue
+                    ratio = joint_case[f'joint_{joint}_{axis}_Vu_kN'] / max(joint_static[f'joint_{joint}_{axis}_phiVn_kN'], 1e-9)
+                    add_ratio_check(all_checks, run_row, f'joint_{joint}_{axis}_shear_ratio', ratio, 1.0, 'ACI 18.8.4', f'Simplified joint shear demand/capacity ratio at {joint} joint in {axis}.')
+                    add_info_check(all_checks, run_row, f'joint_{joint}_{axis}_Vu_kN', round(joint_case[f'joint_{joint}_{axis}_Vu_kN'], 1), 'ACI 18.8.4.1 simplified', 'Simplified joint shear demand using probable beam tension minus column shear.')
+
+            check_rows.extend(all_checks)
+
+            results_rows.append({
+                'column_id': run_row['column_id'], 'story': run_row['story'], 'load_case': run_row.get('load_case', 'U1'),
+                'damage_state': run_row.get('damage_state', 'CP'), 'status': overall_status(static_checks + all_checks),
+                'Ag_mm2': round(float(geom['Ag_mm2']), 1), 'Ach_mm2': round(float(geom['Ach_mm2']), 1), 'As_mm2': round(float(geom['As_mm2']), 1),
+                'rho_long': round(float(geom['rho_long']), 5), 'n_lateral_supported_bars': int(geom['n_lateral_supported_bars']), 'hx_mm': round(float(geom['hx_mm']), 1),
+                'phiPn0_kN': round(axial['phiPn0_kN'], 1), 'phiMn_x_kNm': round(col_x['phiMn_kNm'], 1), 'phiMn_y_kNm': round(col_y['phiMn_kNm'], 1),
+                'Mnc_x_kNm': round(col_x['Mnc_kNm'], 1), 'Mnc_y_kNm': round(col_y['Mnc_kNm'], 1),
+                'Mpr_top_x_kNm': round(col_x['Mpr_pos_kNm'], 1), 'Mpr_bot_x_kNm': round(col_x['Mpr_neg_kNm'], 1),
+                'Mpr_top_y_kNm': round(col_y['Mpr_pos_kNm'], 1), 'Mpr_bot_y_kNm': round(col_y['Mpr_neg_kNm'], 1),
+                'phiVn_x_kN': round(shear_case['phiVn_eff_x_kN'], 1), 'phiVn_y_kN': round(shear_case['phiVn_eff_y_kN'], 1),
+                'Vc_zero_x': bool(shear_case['vc_zero_applies_x']), 'Vc_zero_y': bool(shear_case['vc_zero_applies_y']),
+                'Ve_column_x_kN': round(prob_shear['Ve_col_x_kN'], 1), 'Ve_column_y_kN': round(prob_shear['Ve_col_y_kN'], 1),
+                'Ve_design_x_kN': round(prob_shear['Ve_design_x_kN'], 1), 'Ve_design_y_kN': round(prob_shear['Ve_design_y_kN'], 1),
+                'RotX': round(float(run_row.get('RotX', 0.0)), 6), 'RotY': round(float(run_row.get('RotY', run_row.get('RotZ', 0.0))), 6),
+                'asce41_x_a': round(asce_rot['x']['a'], 6), 'asce41_x_b': round(asce_rot['x']['b'], 6), 'asce41_x_c': round(asce_rot['x']['c'], 6),
+                'asce41_x_theta_io': round(asce_rot['x']['theta_io'], 6), 'asce41_x_theta_ls': round(asce_rot['x']['theta_ls'], 6), 'asce41_x_theta_cp': round(asce_rot['x']['theta_cp'], 6),
+                'asce41_x_v_ratio': round(asce_rot['x']['vye_over_vcoloe'], 6),
+                'asce41_y_a': round(asce_rot['y']['a'], 6), 'asce41_y_b': round(asce_rot['y']['b'], 6), 'asce41_y_c': round(asce_rot['y']['c'], 6),
+                'asce41_y_theta_io': round(asce_rot['y']['theta_io'], 6), 'asce41_y_theta_ls': round(asce_rot['y']['theta_ls'], 6), 'asce41_y_theta_cp': round(asce_rot['y']['theta_cp'], 6),
+                'asce41_y_v_ratio': round(asce_rot['y']['vye_over_vcoloe'], 6),
+                'asce41_rot_ratio_x': round(asce_rot['ratio_x'], 3), 'asce41_rot_ratio_y': round(asce_rot['ratio_y'], 3),
+                'joint_top_x_phiVn_kN': round(float(joint_static.get('joint_top_x_phiVn_kN', 0.0)), 1),
+                'joint_top_y_phiVn_kN': round(float(joint_static.get('joint_top_y_phiVn_kN', 0.0)), 1),
+                'joint_bottom_x_phiVn_kN': round(float(joint_static.get('joint_bottom_x_phiVn_kN', 0.0)), 1),
+                'joint_bottom_y_phiVn_kN': round(float(joint_static.get('joint_bottom_y_phiVn_kN', 0.0)), 1),
+                'joint_top_x_Vu_kN': round(float(joint_case.get('joint_top_x_Vu_kN', 0.0)), 1),
+                'joint_top_y_Vu_kN': round(float(joint_case.get('joint_top_y_Vu_kN', 0.0)), 1),
+                'joint_bottom_x_Vu_kN': round(float(joint_case.get('joint_bottom_x_Vu_kN', 0.0)), 1),
+                'joint_bottom_y_Vu_kN': round(float(joint_case.get('joint_bottom_y_Vu_kN', 0.0)), 1),
+                'scwb_top_x_ratio': round(scwb['scwb_top_x_ratio'], 3), 'scwb_bottom_x_ratio': round(scwb['scwb_bottom_x_ratio'], 3),
+                'scwb_top_y_ratio': round(scwb['scwb_top_y_ratio'], 3), 'scwb_bottom_y_ratio': round(scwb['scwb_bottom_y_ratio'], 3),
+                'pm_ratio_x': round(demand_ratio_pm_x, 3), 'pm_ratio_y': round(demand_ratio_pm_y, 3),
+                'shear_ratio_x': round(shear_ratio_x, 3), 'shear_ratio_y': round(shear_ratio_y, 3),
+                'probable_shear_ratio_x': round(probable_shear_ratio_x, 3), 'probable_shear_ratio_y': round(probable_shear_ratio_y, 3),
+                'pm_svg_x': pm_svg_x, 'pm_pdf_x': pm_pdf_x, 'pm_svg_y': pm_svg_y, 'pm_pdf_y': pm_pdf_y,
+            })
+
+            report_case_contexts.append({
+                'row': run_row, 'checks': static_checks + all_checks, 'col_x': col_x, 'col_y': col_y,
+                'beam_actions': beam_actions, 'prob_shear': prob_shear, 'shear_case': shear_case,
+                'scwb': scwb, 'joint_case': joint_case, 'asce_rot': asce_rot,
+            })
+
+        report_contexts.append({
+            'column_id': column_id, 'prop_row': prop_row, 'geom': geom, 'tr_meta': tr_meta, 'axial': axial,
+            'shear_base': shear_base, 'beam_static': beam_actions,
+            'joint_static': joint_static, 'flexure0': {'x': flexure0_x, 'y': flexure0_y}, 'static_checks': static_checks,
+            'pm_paths': {'pm_svg_x': pm_svg_x, 'pm_pdf_x': pm_pdf_x, 'pm_svg_y': pm_svg_y, 'pm_pdf_y': pm_pdf_y}, 'cases': report_case_contexts, 'pry_name': args.pry_name,
+            'beam_actions': beam_actions,
+            'report_options': {
+                'hide_rotation_table': args.hide_rotation_table,
+                'hide_beam_table': args.hide_beam_table,
+                'hide_joint_table': args.hide_joint_table,
+            },
+        })
+
+    write_csv(outdir / 'column_results.csv', results_rows)
+    write_csv(outdir / 'column_checks.csv', check_rows)
+    failure_rows = [r for r in check_rows if str(r.get('status')) in {'NG', 'WARNING'}]
+    write_csv(outdir / 'column_failures.csv', failure_rows, fieldnames=list(check_rows[0].keys()) if check_rows else None)
+    print(f'Wrote {outdir / "column_results.csv"}')
+    print(f'Wrote {outdir / "column_checks.csv"}')
+    print(f'Wrote {outdir / "column_failures.csv"}')
+    if requested_reports and not args.skip_pm:
+        print(f'Wrote P-M diagrams under {pm_dir}')
+
+    if requested_reports:
+        report_dir.mkdir(parents=True, exist_ok=True)
+        n_reports = 0
+        for ctx in report_contexts:
+            if ctx['column_id'] not in requested_reports:
+                continue
+            tex = build_latex_report(ctx)
+            filename = f"{slugify(str(ctx['column_id']))}_memoria.tex"
+            (report_dir / filename).write_text(tex, encoding='utf-8')
+            n_reports += 1
+        print(f'Wrote {n_reports} LaTeX report(s) under {report_dir}')
+    else:
+        print('No LaTeX reports requested; P-M diagrams were not generated.')
+
+
+if __name__ == '__main__':
+    main()
