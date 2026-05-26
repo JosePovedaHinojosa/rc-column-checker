@@ -3,9 +3,18 @@ from __future__ import annotations
 import math
 from typing import Dict, List
 
+from constants import (
+    ACI_ALPHA1,
+    ACI_BETA1_FC_PIVOT, ACI_BETA1_FC_STEP, ACI_BETA1_MAX, ACI_BETA1_MIN, ACI_BETA1_SLOPE,
+    ACI_ECU,
+    ACI_ES_MPA,
+    ACI_FYE_FACTOR,
+    ACI_PHI_COMPRESSION, ACI_PHI_JOINT, ACI_PHI_SHEAR, ACI_PHI_TENSION, ACI_PHI_TRANSITION_STRAIN,
+    ACI_SCWB_FACTOR,
+    ACI_VC_COEFF, ACI_VC_ZERO_AXIAL_DIVISOR,
+)
+
 BEAM_PREFIXES = ['beam_top_x', 'beam_bottom_x', 'beam_top_y', 'beam_bottom_y']
-ES_MPA = 200000.0
-ECU = 0.003
 
 
 def steel_area_mm2(db_mm: float) -> float:
@@ -13,19 +22,19 @@ def steel_area_mm2(db_mm: float) -> float:
 
 
 def beta1(fc_mpa: float) -> float:
-    if fc_mpa <= 28.0:
-        return 0.85
-    val = 0.85 - 0.05 * ((fc_mpa - 28.0) / 7.0)
-    return max(0.65, min(0.85, val))
+    if fc_mpa <= ACI_BETA1_FC_PIVOT:
+        return ACI_BETA1_MAX
+    val = ACI_BETA1_MAX - ACI_BETA1_SLOPE * ((fc_mpa - ACI_BETA1_FC_PIVOT) / ACI_BETA1_FC_STEP)
+    return max(ACI_BETA1_MIN, min(ACI_BETA1_MAX, val))
 
 
 def phi_from_tensile_strain(eps_t: float, fy_mpa: float) -> float:
-    ey = fy_mpa / ES_MPA
+    ey = fy_mpa / ACI_ES_MPA
     if eps_t <= ey:
-        return 0.65
-    if eps_t >= ey + 0.003:
-        return 0.90
-    return 0.65 + 0.25 * (eps_t - ey) / 0.003
+        return ACI_PHI_COMPRESSION
+    if eps_t >= ey + ACI_PHI_TRANSITION_STRAIN:
+        return ACI_PHI_TENSION
+    return ACI_PHI_COMPRESSION + (ACI_PHI_TENSION - ACI_PHI_COMPRESSION) * (eps_t - ey) / ACI_PHI_TRANSITION_STRAIN
 
 
 def section_response(row: Dict[str, object], geom: Dict[str, object], axis: str, c_mm: float, fy_long_mpa: float, compression_face: str) -> Dict[str, float]:
@@ -51,7 +60,7 @@ def section_response(row: Dict[str, object], geom: Dict[str, object], axis: str,
 
     c_mm = max(min(c_mm, 10.0 * section_depth), 1e-6)
     a_mm = min(beta1(fc) * c_mm, section_depth)
-    Cc_N = 0.85 * fc * compression_width * a_mm
+    Cc_N = ACI_ALPHA1 * fc * compression_width * a_mm
     conc_coord = concrete_face_coord + sign * (a_mm / 2.0)
 
     Pn_N = Cc_N
@@ -61,8 +70,8 @@ def section_response(row: Dict[str, object], geom: Dict[str, object], axis: str,
     for bar in bars:
         coord = float(bar[bar_coord_name])
         dist = sign * (coord - concrete_face_coord)
-        eps = ECU * (1.0 - dist / c_mm)
-        stress = max(min(ES_MPA * eps, fy_long_mpa), -fy_long_mpa)
+        eps = ACI_ECU * (1.0 - dist / c_mm)
+        stress = max(min(ACI_ES_MPA * eps, fy_long_mpa), -fy_long_mpa)
         force = stress * float(bar['As_mm2'])
         Pn_N += force
         Mn_Nmm += force * (coord - centroid_coord)
@@ -125,8 +134,8 @@ def pure_axial_capacity(row: Dict[str, object], geom: Dict[str, object]) -> Dict
     fy = float(row['fy_long_MPa'])
     Ag = float(geom['Ag_mm2'])
     As = float(geom['As_mm2'])
-    Pn0_N = 0.85 * fc * (Ag - As) + fy * As
-    phi = 0.65
+    Pn0_N = ACI_ALPHA1 * fc * (Ag - As) + fy * As
+    phi = ACI_PHI_COMPRESSION
     return {'Pn0_kN': Pn0_N / 1e3, 'phiPn0_kN': phi * Pn0_N / 1e3, 'phi_axial': phi}
 
 
@@ -135,8 +144,8 @@ def pure_flexure_capacity(row: Dict[str, object], geom: Dict[str, object], axis:
     face1, face2 = ('top', 'bottom') if axis == 'x' else ('left', 'right')
     pts_pos = interaction_points(row, geom, axis, fy_long_mpa=fy, compression_face=face1)
     pts_neg = interaction_points(row, geom, axis, fy_long_mpa=fy, compression_face=face2)
-    pts_prob_pos = interaction_points(row, geom, axis, fy_long_mpa=1.25 * fy, compression_face=face1)
-    pts_prob_neg = interaction_points(row, geom, axis, fy_long_mpa=1.25 * fy, compression_face=face2)
+    pts_prob_pos = interaction_points(row, geom, axis, fy_long_mpa=ACI_FYE_FACTOR * fy, compression_face=face1)
+    pts_prob_neg = interaction_points(row, geom, axis, fy_long_mpa=ACI_FYE_FACTOR * fy, compression_face=face2)
     nominal_pos = _interpolate_strength(pts_pos, 0.0, use_phi=False)
     nominal_neg = _interpolate_strength(pts_neg, 0.0, use_phi=False)
     design_pos = _interpolate_strength(pts_pos, 0.0, use_phi=True)
@@ -165,7 +174,7 @@ def column_strengths_at_Pu(row: Dict[str, object], geom: Dict[str, object], axis
     design_pos = _interpolate_strength(pts_pos, Pu, use_phi=True)
     design_neg = _interpolate_strength(pts_neg, Pu, use_phi=True)
 
-    fy_prob = 1.25 * fy
+    fy_prob = ACI_FYE_FACTOR * fy
     pts_prob_pos = interaction_points(row, geom, axis, fy_long_mpa=fy_prob, compression_face=face1)
     pts_prob_neg = interaction_points(row, geom, axis, fy_long_mpa=fy_prob, compression_face=face2)
     probable_pos = _interpolate_strength(pts_prob_pos, Pu, use_phi=False)
@@ -214,7 +223,7 @@ def _beam_side_strength(face: str, side: str, row: Dict[str, object]) -> Dict[st
     def beam_Mn(As_tension_mm2: float, fy_eff: float) -> tuple[float, float, float]:
         if bw <= 0.0 or h <= 0.0 or As_tension_mm2 <= 0.0:
             return 0.0, 0.0, 0.0
-        a = As_tension_mm2 * fy_eff / max(0.85 * fc * bw, 1e-9)
+        a = As_tension_mm2 * fy_eff / max(ACI_ALPHA1 * fc * bw, 1e-9)
         d = h - cover
         jd = max(d - a / 2.0, 0.0)
         Mn = As_tension_mm2 * fy_eff * jd / 1e6
@@ -223,8 +232,8 @@ def _beam_side_strength(face: str, side: str, row: Dict[str, object]) -> Dict[st
 
     Mn_pos, jd_pos, T_pos = beam_Mn(As_bot, fy)
     Mn_neg, jd_neg, T_neg = beam_Mn(As_top, fy)
-    Mpr_pos, jd_prob_pos, Tpr_pos = beam_Mn(As_bot, 1.25 * fy)
-    Mpr_neg, jd_prob_neg, Tpr_neg = beam_Mn(As_top, 1.25 * fy)
+    Mpr_pos, jd_prob_pos, Tpr_pos = beam_Mn(As_bot, ACI_FYE_FACTOR * fy)
+    Mpr_neg, jd_prob_neg, Tpr_neg = beam_Mn(As_top, ACI_FYE_FACTOR * fy)
     joint_Mn = max(Mn_pos, Mn_neg)
     joint_Mpr = max(Mpr_pos, Mpr_neg)
     joint_Tpr = max(Tpr_pos, Tpr_neg)
@@ -384,7 +393,7 @@ def _joint_coefficient(column_continuous: bool, beam_continuous: bool, confined:
 
 def joint_capacity_static(row: Dict[str, object], beam_actions: Dict[str, float]) -> Dict[str, float | bool]:
     fc = float(row['fc_MPa'])
-    out: Dict[str, float | bool] = {'phi_joint': 0.85}
+    out: Dict[str, float | bool] = {'phi_joint': ACI_PHI_JOINT}
     for joint in ['top', 'bottom']:
         column_cont = bool(row['joint_top'] if joint == 'top' else row['joint_bottom'])
         for axis in ['x', 'y']:
@@ -408,7 +417,7 @@ def joint_capacity_static(row: Dict[str, object], beam_actions: Dict[str, float]
             out[f'joint_{joint}_{axis}_Aj_mm2'] = float(depth['Aj_mm2'])
             out[f'joint_{joint}_{axis}_eff_width_mm'] = float(depth['eff_width_mm'])
             out[f'joint_{joint}_{axis}_h_joint_mm'] = float(depth['h_joint_mm'])
-            out[f'joint_{joint}_{axis}_phiVn_kN'] = 0.85 * Vn_kN
+            out[f'joint_{joint}_{axis}_phiVn_kN'] = ACI_PHI_JOINT * Vn_kN
             out[f'joint_{joint}_{axis}_Vn_kN'] = Vn_kN
             for suffix in ['cond_a', 'cond_b', 'cond_c', 'cond_d', 'count', 'face_width_mm', 'deeper_beam_h_mm']:
                 out[f'joint_{joint}_{axis}_{suffix}'] = conf[suffix]
@@ -436,7 +445,7 @@ def strong_column_weak_beam(row: Dict[str, object], beam_actions: Dict[str, floa
             other = _resolve_other_col_value(row[f'other_col_{joint}_{axis}_Mnc_kNm'], current)
             beams = float(beam_actions.get(f'beam_{joint}_{axis}_joint_Mn_kNm', 0.0))
             sum_mnc = current + other
-            required = 1.2 * beams
+            required = ACI_SCWB_FACTOR * beams
             ratio = sum_mnc / required if required > 0.0 else float('inf')
             checks[f'scwb_{joint}_{axis}_this_col_mnc_kNm'] = current
             checks[f'scwb_{joint}_{axis}_other_col_mnc_kNm'] = other
@@ -459,11 +468,11 @@ def shear_capacity_base(row: Dict[str, object], geom: Dict[str, object]) -> Dict
     d_y = b - cover
     Av_x = max(2.0, float(geom['n_supported_top'])) * steel_area_mm2(tie_db)
     Av_y = max(2.0, float(geom['n_supported_left'])) * steel_area_mm2(tie_db)
-    Vc_x_N = 0.17 * math.sqrt(fc) * b * d_x
-    Vc_y_N = 0.17 * math.sqrt(fc) * h * d_y
+    Vc_x_N = ACI_VC_COEFF * math.sqrt(fc) * b * d_x
+    Vc_y_N = ACI_VC_COEFF * math.sqrt(fc) * h * d_y
     Vs_x_N = Av_x * fy_t * d_x / max(s, 1e-9)
     Vs_y_N = Av_y * fy_t * d_y / max(s, 1e-9)
-    phi = 0.75
+    phi = ACI_PHI_SHEAR
     return {
         'd_x_mm': d_x, 'd_y_mm': d_y,
         'Av_x_mm2': Av_x, 'Av_y_mm2': Av_y,
@@ -484,7 +493,7 @@ def shear_capacity_case(row: Dict[str, object], geom: Dict[str, object], probabl
     phi = float(base['phi_shear'])
 
     out = dict(base)
-    out['vc_zero_cond_b'] = Pu_N < Ag * fc / 20.0
+    out['vc_zero_cond_b'] = Pu_N < Ag * fc / ACI_VC_ZERO_AXIAL_DIVISOR
     for axis in ['x', 'y']:
         Ve_eq = abs(float(probable_shear[f'Ve_col_{axis}_kN']))
         Vreq = abs(float(probable_shear[f'Ve_design_{axis}_kN']))

@@ -2,6 +2,20 @@ from __future__ import annotations
 
 from typing import Dict
 
+from constants import (
+    ASCE41_A_AXIAL_CAP, ASCE41_A_AXIAL_COEFF, ASCE41_A_INTERCEPT, ASCE41_A_RHOT_COEFF, ASCE41_A_VRATIO_COEFF,
+    ASCE41_B_DENOM_AXIAL_DIV, ASCE41_B_DENOM_INTERCEPT, ASCE41_B_NUMERATOR, ASCE41_B_SUBTRACTION,
+    ASCE41_C_AXIAL_COEFF, ASCE41_C_INTERCEPT,
+    ASCE41_FYE_DEFAULT, ASCE41_FYTE_DEFAULT,
+    ASCE41_HIGH_AXIAL_SCALE_RANGE, ASCE41_HIGH_AXIAL_SCALE_TOP, ASCE41_HIGH_AXIAL_THRESHOLD,
+    ASCE41_RHO_T_CAP_ANCHORED, ASCE41_RHO_T_CAP_UNANCHORED, ASCE41_RHO_T_MIN,
+    ASCE41_SP_A_CAP, ASCE41_SP_A_DENOM_COEFF,
+    ASCE41_SP_B_AXIAL_COEFF, ASCE41_SP_B_CAP, ASCE41_SP_B_INTERCEPT, ASCE41_SP_B_RHOT_COEFF,
+    ASCE41_SP_C_CAP, ASCE41_SP_C_INTERCEPT, ASCE41_SP_C_RHOT_COEFF,
+    ASCE41_THETA_CP_FACTOR, ASCE41_THETA_IO_FACTOR, ASCE41_THETA_IO_MAX, ASCE41_THETA_LS_FACTOR,
+    ASCE41_V_RATIO_MIN,
+)
+
 
 def _clip(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
@@ -10,10 +24,10 @@ def _clip(value: float, lo: float, hi: float) -> float:
 def _limit_rho_t(raw_rho_t: float, adequately_anchored: bool) -> tuple[float, list[str]]:
     warnings: list[str] = []
     rho_t = raw_rho_t
-    if raw_rho_t < 0.0005:
-        warnings.append('ASCE 41 Table 10-8 note: equations not valid for rho_t < 0.0005; value clipped to 0.0005 for screening.')
-        rho_t = 0.0005
-    cap = 0.0175 if adequately_anchored else 0.0075
+    if raw_rho_t < ASCE41_RHO_T_MIN:
+        warnings.append(f'ASCE 41 Table 10-8 note: equations not valid for rho_t < {ASCE41_RHO_T_MIN}; value clipped for screening.')
+        rho_t = ASCE41_RHO_T_MIN
+    cap = ASCE41_RHO_T_CAP_ANCHORED if adequately_anchored else ASCE41_RHO_T_CAP_UNANCHORED
     if raw_rho_t > cap:
         warnings.append(f'ASCE 41 Table 10-8 note: rho_t capped at {cap:.4f}.')
         rho_t = cap
@@ -21,14 +35,14 @@ def _limit_rho_t(raw_rho_t: float, adequately_anchored: bool) -> tuple[float, li
 
 
 def _unspliced_params(axial_ratio: float, rho_t: float, fc_mpa: float, fyte_mpa: float, v_ratio: float) -> tuple[float, float, float]:
-    r_eff = min(axial_ratio, 0.5)
-    a = max(0.042 - 0.043 * r_eff + 0.63 * rho_t - 0.023 * v_ratio, 0.0)
-    denom = 5.0 + (r_eff / 0.8) * (fc_mpa / max(rho_t * fyte_mpa, 1e-9))
-    b = max(0.5 / denom - 0.01, a)
-    c = max(0.24 - 0.4 * max(axial_ratio, 0.1), 0.0)
+    r_eff = min(axial_ratio, ASCE41_A_AXIAL_CAP)
+    a = max(ASCE41_A_INTERCEPT - ASCE41_A_AXIAL_COEFF * r_eff + ASCE41_A_RHOT_COEFF * rho_t - ASCE41_A_VRATIO_COEFF * v_ratio, 0.0)
+    denom = ASCE41_B_DENOM_INTERCEPT + (r_eff / ASCE41_B_DENOM_AXIAL_DIV) * (fc_mpa / max(rho_t * fyte_mpa, 1e-9))
+    b = max(ASCE41_B_NUMERATOR / denom - ASCE41_B_SUBTRACTION, a)
+    c = max(ASCE41_C_INTERCEPT - ASCE41_C_AXIAL_COEFF * max(axial_ratio, 0.1), 0.0)
 
-    if axial_ratio > 0.5:
-        factor = max(0.0, min(1.0, (0.7 - axial_ratio) / 0.2))
+    if axial_ratio > ASCE41_HIGH_AXIAL_THRESHOLD:
+        factor = max(0.0, min(1.0, (ASCE41_HIGH_AXIAL_SCALE_TOP - axial_ratio) / ASCE41_HIGH_AXIAL_SCALE_RANGE))
         a = max(a * factor, 0.0)
         b = max(b * factor, a)
     return a, b, c
@@ -38,11 +52,11 @@ def _spliced_params(axial_ratio: float, rho_t: float, rho_l: float, fy_mpa: floa
     if not two_tie_groups:
         a = 0.0
     else:
-        a = (rho_t * fye_mpa) / max(8.0 * rho_l * fy_mpa, 1e-9)
-        a = _clip(a, 0.0, 0.025)
-    b = 0.012 - 0.085 * axial_ratio + 12.0 * rho_t
-    b = _clip(max(b, a), 0.0, 0.06)
-    c = _clip(0.15 + 36.0 * rho_t, 0.0, 0.4)
+        a = (rho_t * fye_mpa) / max(ASCE41_SP_A_DENOM_COEFF * rho_l * fy_mpa, 1e-9)
+        a = _clip(a, 0.0, ASCE41_SP_A_CAP)
+    b = ASCE41_SP_B_INTERCEPT - ASCE41_SP_B_AXIAL_COEFF * axial_ratio + ASCE41_SP_B_RHOT_COEFF * rho_t
+    b = _clip(max(b, a), 0.0, ASCE41_SP_B_CAP)
+    c = _clip(ASCE41_SP_C_INTERCEPT + ASCE41_SP_C_RHOT_COEFF * rho_t, 0.0, ASCE41_SP_C_CAP)
     return a, b, c
 
 
@@ -66,9 +80,9 @@ def _direction_params(
     rho_l = max(float(geom['rho_long']), 1e-9)
 
     axial_ratio = max(Pu_kN * 1e3 / max(Ag * fc, 1e-9), 0.1)
-    v_ratio_used = max(float(v_ratio), 0.2)
-    fye = float(row.get('asce_fye_factor', 1.25)) * fy
-    fyte = float(row.get('asce_fyte_factor', 1.25)) * fyt
+    v_ratio_used = max(float(v_ratio), ASCE41_V_RATIO_MIN)
+    fye = float(row.get('asce_fye_factor', ASCE41_FYE_DEFAULT)) * fy
+    fyte = float(row.get('asce_fyte_factor', ASCE41_FYTE_DEFAULT)) * fyt
     splice_controlled = bool(row.get('asce_splice_controlled', False))
     two_tie_groups = bool(row.get('asce_splice_two_tie_groups', True))
 
@@ -83,9 +97,9 @@ def _direction_params(
         b = min(max(b_sp, a), b_un)
         c = min(c_sp, c_un)
 
-    theta_io = 0.0 if splice_controlled else min(0.15 * a, 0.005)
-    theta_ls = 0.5 * b
-    theta_cp = 0.7 * b
+    theta_io = 0.0 if splice_controlled else min(ASCE41_THETA_IO_FACTOR * a, ASCE41_THETA_IO_MAX)
+    theta_ls = ASCE41_THETA_LS_FACTOR * b
+    theta_cp = ASCE41_THETA_CP_FACTOR * b
 
     damage_state = str(row.get('damage_state', 'CP')).upper()
     theta_cap = {'IO': theta_io, 'LS': theta_ls, 'CP': theta_cp}.get(damage_state, theta_cp)

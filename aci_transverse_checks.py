@@ -2,6 +2,18 @@ from __future__ import annotations
 
 from typing import Dict, List
 
+from constants import (
+    ACI_ALPHA1,
+    ACI_GRAVITY_AXIAL_TRIGGER,
+    ACI_HIGH_AXIAL_FC_RATIO, ACI_HIGH_FC_THRESHOLD_MPA,
+    ACI_HOOK_ANGLE_MIN_DEG,
+    ACI_HX_GENERAL_MM, ACI_HX_SPECIAL_MM,
+    ACI_LO_MIN_MM, ACI_LO_HEIGHT_DIVISOR,
+    ACI_RHO_S_CIRC_D, ACI_RHO_S_CIRC_E, ACI_RHO_S_CIRC_F,
+    ACI_RHO_S_RECT_A, ACI_RHO_S_RECT_B, ACI_RHO_S_RECT_C,
+    ACI_SO_MAX_MM, ACI_SO_MIN_MM,
+)
+
 
 def add_check(results, column_id, load_case, check_name, ok, provided, required, message, code_ref=''):
     results.append({
@@ -43,12 +55,12 @@ def add_warning(results, column_id, load_case, check_name, provided, required, m
 
 
 def calc_lo_mm(h_col_mm: float, clear_height_mm: float) -> float:
-    return max(h_col_mm, clear_height_mm / 6.0, 450.0)
+    return max(h_col_mm, clear_height_mm / ACI_LO_HEIGHT_DIVISOR, ACI_LO_MIN_MM)
 
 
 def calc_so_eq_mm(hx_mm: float) -> float:
-    so = 100.0 + (350.0 - hx_mm) / 3.0
-    return max(100.0, min(150.0, so))
+    so = ACI_SO_MIN_MM + (ACI_HX_GENERAL_MM - hx_mm) / 3.0
+    return max(ACI_SO_MIN_MM, min(ACI_SO_MAX_MM, so))
 
 
 def calc_kf(fc_MPa: float) -> float:
@@ -75,9 +87,9 @@ def _table_18_7_5_4_rect_parts(row: Dict[str, object], geom: Dict[str, object]) 
     kf = calc_kf(fc)
     kn = calc_kn(int(geom['n_lateral_supported_bars']))
 
-    expr_a = 0.3 * max(Ag / max(Ach, 1e-9) - 1.0, 0.0) * (fc / max(fyt, 1e-9)) * kf * kn
-    expr_b = 0.09 * (fc / max(fyt, 1e-9)) * kf * kn
-    expr_c = 0.2 * kf * kn * Pu_N / max(fyt * Ach, 1e-9)
+    expr_a = ACI_RHO_S_RECT_A * max(Ag / max(Ach, 1e-9) - 1.0, 0.0) * (fc / max(fyt, 1e-9)) * kf * kn
+    expr_b = ACI_RHO_S_RECT_B * (fc / max(fyt, 1e-9)) * kf * kn
+    expr_c = ACI_RHO_S_RECT_C * kf * kn * Pu_N / max(fyt * Ach, 1e-9)
     return expr_a, expr_b, expr_c
 
 
@@ -90,9 +102,9 @@ def _table_18_7_5_4_circ_parts(row: Dict[str, object], geom: Dict[str, object]) 
     kf = calc_kf(fc)
     kn = calc_kn(int(geom['n_lateral_supported_bars']))
 
-    expr_d = 0.45 * max(Ag / max(Ach, 1e-9) - 1.0, 0.0) * (fc / max(fyt, 1e-9))
-    expr_e = 0.12 * (fc / max(fyt, 1e-9))
-    expr_f = 0.35 * Pu_N / max(fyt * Ach, 1e-9)
+    expr_d = ACI_RHO_S_CIRC_D * max(Ag / max(Ach, 1e-9) - 1.0, 0.0) * (fc / max(fyt, 1e-9))
+    expr_e = ACI_RHO_S_CIRC_E * (fc / max(fyt, 1e-9))
+    expr_f = ACI_RHO_S_CIRC_F * Pu_N / max(fyt * Ach, 1e-9)
     return expr_d * kf * kn, expr_e * kf * kn, expr_f * kf * kn
 
 
@@ -100,7 +112,7 @@ def required_transverse_ratio(row: Dict[str, object], geom: Dict[str, object]) -
     fc = float(row['fc_MPa'])
     Ag = float(geom['Ag_mm2'])
     Pu_N = float(row['Pu_kN']) * 1e3
-    trigger_high = (Pu_N > 0.3 * Ag * fc) or (fc > 70.0)
+    trigger_high = (Pu_N > ACI_HIGH_AXIAL_FC_RATIO * Ag * fc) or (fc > ACI_HIGH_FC_THRESHOLD_MPA)
     tie_type = str(row.get('tie_type', 'rectilinear')).strip().lower()
     if tie_type in {'circular', 'spiral'}:
         expr_d, expr_e, expr_f = _table_18_7_5_4_circ_parts(row, geom)
@@ -123,7 +135,7 @@ def _po_nominal_kN(row: Dict[str, object], geom: Dict[str, object]) -> float:
     fy = float(row['fy_long_MPa'])
     Ag = float(geom['Ag_mm2'])
     As = float(geom['As_mm2'])
-    return (0.85 * fc * (Ag - As) + fy * As) / 1e3
+    return (ACI_ALPHA1 * fc * (Ag - As) + fy * As) / 1e3
 
 
 def transverse_checks(row: Dict[str, object], geom: Dict[str, object]) -> tuple[List[Dict[str, object]], Dict[str, float]]:
@@ -163,7 +175,7 @@ def transverse_checks(row: Dict[str, object], geom: Dict[str, object]) -> tuple[
     rho_s_req = required_transverse_ratio(row, geom)
     rho_s_x = float(geom['rho_s_x'])
     rho_s_y = float(geom['rho_s_y'])
-    trigger_high = (Pu_N > 0.3 * Ag * fc) or (fc > 70.0)
+    trigger_high = (Pu_N > ACI_HIGH_AXIAL_FC_RATIO * Ag * fc) or (fc > ACI_HIGH_FC_THRESHOLD_MPA)
 
     add_check(results, cid, load_case, 'lo_x_length', lo_x >= 450.0, round(lo_x, 1), '>= max(h, lclear/6, 450)', 'Special confining reinforcement length in x.', 'ACI 18.7.5.1')
     add_check(results, cid, load_case, 'lo_y_length', lo_y >= 450.0, round(lo_y, 1), '>= max(b, lclear/6, 450)', 'Special confining reinforcement length in y.', 'ACI 18.7.5.1')
@@ -177,7 +189,7 @@ def transverse_checks(row: Dict[str, object], geom: Dict[str, object]) -> tuple[
 
     if frame_is_gravity:
         po_kN = _po_nominal_kN(row, geom)
-        gravity_trigger = max(float(row['Pu_kN']), 0.0) > 0.35 * po_kN
+        gravity_trigger = max(float(row['Pu_kN']), 0.0) > ACI_GRAVITY_AXIAL_TRIGGER * po_kN
         gravity_rho_req = _gravity_half_table_ratio(row, geom) if gravity_trigger else 0.0
 
         add_info(results, cid, load_case, 'gravity_column_mode', 'ACI 18.14.3.2(b)-(c)', 'Gravity-column detailing branch enabled from frame_type.', 'ACI 18.14.3.2')
@@ -186,10 +198,10 @@ def transverse_checks(row: Dict[str, object], geom: Dict[str, object]) -> tuple[
         add_info(results, cid, load_case, 'gravity_Po_kN', round(po_kN, 1), 'Nominal concentric axial strength proxy used for 0.35Po trigger.', 'ACI 18.14.3.2(c)')
         add_check(results, cid, load_case, 'gravity_tie_spacing_lo_full_length', tie_spacing_lo <= smax_full_gravity, round(tie_spacing_lo, 1), f'<= {smax_full_gravity:.1f} mm', 'Full-length gravity-column transverse reinforcement spacing within lo.', 'ACI 18.14.3.2(b)')
         add_check(results, cid, load_case, 'gravity_tie_spacing_outside_lo_full_length', tie_spacing_out <= smax_full_gravity or bool(row['spiral_provided']), round(tie_spacing_out, 1), f'<= {smax_full_gravity:.1f} mm', 'Full-length gravity-column transverse reinforcement spacing outside lo.', 'ACI 18.14.3.2(b)')
-        add_check(results, cid, load_case, 'gravity_hook_angle_rectilinear', hook_angle >= 135.0, hook_angle, '>= 135 deg', 'Over lo from each joint face, transverse reinforcement to satisfy 18.7.5.2(b).', 'ACI 18.14.3.2(b) / 18.7.5.2(b)')
+        add_check(results, cid, load_case, 'gravity_hook_angle_rectilinear', hook_angle >= ACI_HOOK_ANGLE_MIN_DEG, hook_angle, f'>= {ACI_HOOK_ANGLE_MIN_DEG:.0f} deg', 'Over lo from each joint face, transverse reinforcement to satisfy 18.7.5.2(b).', 'ACI 18.14.3.2(b) / 18.7.5.2(b)')
         add_check(results, cid, load_case, 'gravity_crosstie_diameter', crosstie_db >= tie_db, crosstie_db, f'>= {tie_db}', 'Over lo from each joint face, crosstie diameter shall not be smaller than hoop diameter.', 'ACI 18.14.3.2(b) / 18.7.5.2(c)')
         add_check(results, cid, load_case, 'gravity_crosstie_alternate_anchorage', bool(row['crosstie_alt_anchorage']), bool(row['crosstie_alt_anchorage']), True, 'Consecutive crossties alternated end for end over lo.', 'ACI 18.14.3.2(b) / 18.7.5.2(c)')
-        add_check(results, cid, load_case, 'gravity_hx_general_limit', hx <= 350.0, round(hx, 1), '<= 350 mm', 'Maximum spacing between laterally supported longitudinal bars over lo.', 'ACI 18.14.3.2(b) / 18.7.5.2(e)')
+        add_check(results, cid, load_case, 'gravity_hx_general_limit', hx <= ACI_HX_GENERAL_MM, round(hx, 1), f'<= {ACI_HX_GENERAL_MM:.0f} mm', 'Maximum spacing between laterally supported longitudinal bars over lo.', 'ACI 18.14.3.2(b) / 18.7.5.2(e)')
         add_info(results, cid, load_case, 'gravity_joints_chapter15', 'See joint checks', 'Gravity columns shall have joints satisfying Chapter 15.', 'ACI 18.14.3.2(d)')
 
         if gravity_trigger:
@@ -222,12 +234,12 @@ def transverse_checks(row: Dict[str, object], geom: Dict[str, object]) -> tuple[
         }
         return results, meta
 
-    add_check(results, cid, load_case, 'hook_angle_rectilinear', hook_angle >= 135.0, hook_angle, '>= 135 deg', 'Rectilinear hoops shall have 135-degree hooks.', 'ACI 18.7.5.2(b)')
+    add_check(results, cid, load_case, 'hook_angle_rectilinear', hook_angle >= ACI_HOOK_ANGLE_MIN_DEG, hook_angle, f'>= {ACI_HOOK_ANGLE_MIN_DEG:.0f} deg', 'Rectilinear hoops shall have 135-degree hooks.', 'ACI 18.7.5.2(b)')
     add_check(results, cid, load_case, 'crosstie_diameter', crosstie_db >= tie_db, crosstie_db, f'>= {tie_db}', 'Crosstie diameter shall not be smaller than hoop diameter.', 'ACI 18.7.5.2(c)')
     add_check(results, cid, load_case, 'crosstie_alternate_anchorage', bool(row['crosstie_alt_anchorage']), bool(row['crosstie_alt_anchorage']), True, 'Consecutive crossties alternated end for end.', 'ACI 18.7.5.2(c)')
-    add_check(results, cid, load_case, 'hx_general_limit', hx <= 350.0, round(hx, 1), '<= 350 mm', 'Maximum spacing between laterally supported longitudinal bars.', 'ACI 18.7.5.2(e)')
+    add_check(results, cid, load_case, 'hx_general_limit', hx <= ACI_HX_GENERAL_MM, round(hx, 1), f'<= {ACI_HX_GENERAL_MM:.0f} mm', 'Maximum spacing between laterally supported longitudinal bars.', 'ACI 18.7.5.2(e)')
     if trigger_high:
-        add_check(results, cid, load_case, 'hx_special_limit', hx <= 200.0, round(hx, 1), '<= 200 mm', 'Special limit for high Pu or fc.', 'ACI 18.7.5.2(f)')
+        add_check(results, cid, load_case, 'hx_special_limit', hx <= ACI_HX_SPECIAL_MM, round(hx, 1), f'<= {ACI_HX_SPECIAL_MM:.0f} mm', 'Special limit for high Pu or fc.', 'ACI 18.7.5.2(f)')
         add_check(results, cid, load_case, 'all_perimeter_bars_supported', int(geom['n_lateral_supported_bars']) >= int(geom['n_perimeter_bars']), f"{int(geom['n_lateral_supported_bars'])}/{int(geom['n_perimeter_bars'])}", 'all perimeter bars supported', 'All perimeter bars should be laterally supported.', 'ACI 18.7.5.2(f)')
     add_check(results, cid, load_case, 'tie_spacing_within_lo', tie_spacing_lo <= smax_lo_smf, round(tie_spacing_lo, 1), f'<= {smax_lo_smf:.1f} mm', 'Within lo tie spacing.', 'ACI 18.7.5.3')
     add_check(results, cid, load_case, 'tie_spacing_outside_lo', tie_spacing_out <= smax_out_smf or bool(row['spiral_provided']), round(tie_spacing_out, 1), f'<= {smax_out_smf:.1f} mm', 'Outside lo tie spacing.', 'ACI 18.7.5.5')
