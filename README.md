@@ -81,10 +81,10 @@ Run the bundled sample files:
 
 ```bash
 python main.py ^
-  --column-sections sample_column_sections_v18.csv ^
-  --beam-sections sample_beam_sections_v18.csv ^
-  --column-beam sample_column_beam_prop_v18.csv ^
-  --loads sample_loads_v18.csv ^
+  --column-sections sample_column_sections.csv ^
+  --beam-sections sample_beam_sections.csv ^
+  --column-beam sample_column_beam_prop.csv ^
+  --loads sample_loads.csv ^
   --outdir outputs
 ```
 
@@ -107,10 +107,10 @@ Generate LaTeX reports for selected columns:
 
 ```bash
 python main.py ^
-  --column-sections sample_column_sections_v18.csv ^
-  --beam-sections sample_beam_sections_v18.csv ^
-  --column-beam sample_column_beam_prop_v18.csv ^
-  --loads sample_loads_v18.csv ^
+  --column-sections sample_column_sections.csv ^
+  --beam-sections sample_beam_sections.csv ^
+  --column-beam sample_column_beam_prop.csv ^
+  --loads sample_loads.csv ^
   --outdir outputs ^
   --report-columns COL_150x100,COL_150x100_ROOF ^
   --pry-name "Project Name"
@@ -120,10 +120,10 @@ Generate LaTeX reports for all columns:
 
 ```bash
 python main.py ^
-  --column-sections sample_column_sections_v18.csv ^
-  --beam-sections sample_beam_sections_v18.csv ^
-  --column-beam sample_column_beam_prop_v18.csv ^
-  --loads sample_loads_v18.csv ^
+  --column-sections sample_column_sections.csv ^
+  --beam-sections sample_beam_sections.csv ^
+  --column-beam sample_column_beam_prop.csv ^
+  --loads sample_loads.csv ^
   --outdir outputs ^
   --report-all ^
   --pry-name "Project Name"
@@ -133,10 +133,10 @@ Generate a report while hiding optional sections:
 
 ```bash
 python main.py ^
-  --column-sections sample_column_sections_v18.csv ^
-  --beam-sections sample_beam_sections_v18.csv ^
-  --column-beam sample_column_beam_prop_v18.csv ^
-  --loads sample_loads_v18.csv ^
+  --column-sections sample_column_sections.csv ^
+  --beam-sections sample_beam_sections.csv ^
+  --column-beam sample_column_beam_prop.csv ^
+  --loads sample_loads.csv ^
   --outdir outputs ^
   --report-columns COL_150x100 ^
   --pry-name "Project Name" ^
@@ -175,7 +175,7 @@ The tool requires **four CSV files**. All use comma-separated format with a head
 
 Defines a reusable library of column cross-sections. One row per section ID. Referenced from the column-beam properties file.
 
-**Sample:** `sample_column_sections_v18.csv`
+**Sample:** `sample_column_sections.csv`
 
 #### Geometry and Materials
 
@@ -256,7 +256,7 @@ Example: `"40;190;340;500;660;810;960"` for a face with 7 bars each 150 mm apart
 
 Defines a reusable library of beam cross-sections. Referenced from the column-beam properties file to describe beams framing into each joint face.
 
-**Sample:** `sample_beam_sections_v18.csv`
+**Sample:** `sample_beam_sections.csv`
 
 | Field | Type | Description |
 |---|---|---|
@@ -279,7 +279,7 @@ Defines a reusable library of beam cross-sections. Referenced from the column-be
 
 One row per column instance (not per section). References a column section and defines the structural context: story, frame type, adjacent columns, and beams on each joint face.
 
-**Sample:** `sample_column_beam_prop_v18.csv`
+**Sample:** `sample_column_beam_prop.csv`
 
 #### Column Identity and Context
 
@@ -333,7 +333,7 @@ For each combination `{face}_{side}` (e.g., `beam_top_x_side1`):
 
 One row per load combination per column. A single `column_id` may have many rows (load cases).
 
-**Sample:** `sample_loads_v18.csv`
+**Sample:** `sample_loads.csv`
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -611,10 +611,10 @@ rc-column-checker/
 ├── pm_diagram.py                # P-M diagram generation (matplotlib)
 ├── reporting.py                 # LaTeX report assembly
 ├── requirements.txt
-├── sample_column_sections_v18.csv
-├── sample_beam_sections_v18.csv
-├── sample_column_beam_prop_v18.csv
-├── sample_loads_v18.csv
+├── sample_column_sections.csv
+├── sample_beam_sections.csv
+├── sample_column_beam_prop.csv
+├── sample_loads.csv
 ├── sections/                    # Section diagram images for reports (PNG)
 ├── templates/                   # LaTeX report template
 ├── assets/
@@ -681,4 +681,4 @@ For each column:
 
 7. **LaTeX compilation assets**: To compile the generated report, keep `assets/logo_black_horizontal.png` two directory levels above the `.tex` file (`../../assets/logo_black_horizontal.png`), and section images at `../../sections/{column_section_id}.png`.
 
-8. **Version history**: This is version 18 of the tool. Sample files from v17 (`*_v17.csv`) are also included for reference. Use `*_v18.csv` files for current runs.
+8. **Version history**: This is version 18 of the tool. Sample files use clean names without version suffix.
