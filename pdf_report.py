@@ -498,7 +498,7 @@ def _make_on_page(logo_path: str | None, pry_name: str, column_id: str):
         canvas.setFillColor(colors.HexColor('#aaaaaa'))
         canvas.drawCentredString(
             _W / 2, 5 * mm,
-            '© 2025 Torrefuerte-Estructural · www.torrefuerte.ec · '
+            '© 2026 Torrefuerte-Estructural · www.torrefuerte.ec · '
             'Beta version — not extensively validated · use under engineer\'s responsibility',
         )
         canvas.restoreState()

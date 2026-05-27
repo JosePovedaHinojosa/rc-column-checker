@@ -768,7 +768,7 @@ def tab_section() -> None:
                     )
 
             with _col_sketch:
-                st.caption('Vista previa')
+                st.caption('Preview')
                 _fig = _draw_column_section(sec)
                 st.pyplot(_fig, use_container_width=True)
                 plt.close(_fig)
@@ -858,7 +858,7 @@ def tab_beams() -> None:
                     'db bottom [mm]', value=float(bsec['db_bot_mm']), min_value=6.0, step=2.0, key=f'dbbot_{i}',
                 )
             with _col_sketch:
-                st.caption('Vista previa')
+                st.caption('Preview')
                 _fig = _draw_beam_section(bsec)
                 st.pyplot(_fig, use_container_width=True)
                 plt.close(_fig)
@@ -1152,7 +1152,6 @@ def tab_results() -> None:
                     'Deselect all to skip reports (equivalent to unchecking the checkbox).'
                 ),
             )
-            st.success('✅ PDF generado directamente con Python (ReportLab) — sin necesidad de LaTeX.')
         st.session_state['project_name'] = st.text_input(
             'Project name (appears in report header)',
             value=st.session_state.get('project_name', ''),
@@ -1275,7 +1274,7 @@ def tab_results() -> None:
             mime='application/zip' if is_zip else 'application/pdf',
         )
     elif st.session_state.get('report_requested'):
-        st.warning('Se solicitó reporte pero no se generó ningún PDF. Revisar el log de cálculo.')
+        st.warning('Report was requested but no PDF was generated. Check the calculation log.')
 
     with st.expander('🖥 Calculation log'):
         st.code(st.session_state.get('_stdout', ''))
@@ -1412,11 +1411,11 @@ def main() -> None:
             st.image(str(logo_path), use_container_width=True)
 
     st.warning(
-        '**⚠️ Versión de prueba — no validada extensivamente.**  '
-        'Esta aplicación se encuentra en fase de desarrollo y **no ha sido validada de forma exhaustiva**. '
-        'Los resultados deben ser revisados y verificados por un ingeniero estructural calificado '
-        'antes de ser utilizados en cualquier proyecto real. '
-        'Torrefuerte-Estructural no asume responsabilidad alguna por el uso de esta herramienta.',
+        '**⚠️ Beta version — not extensively validated.**  '
+        'This application is under active development and **has not been exhaustively validated**. '
+        'Results must be reviewed and verified by a qualified structural engineer '
+        'before use in any real project. '
+        'Torrefuerte-Estructural assumes no responsibility for the use of this tool.',
     )
 
     with st.expander('💾 Project file  —  save / load', expanded=False):
@@ -1476,15 +1475,15 @@ def main() -> None:
 <hr style="margin-top:2.5rem; border:none; border-top:1px solid #e0e0e0;">
 <div style="text-align:center; color:#999999; font-size:0.78rem;
             padding:6px 0 20px 0; line-height:2.0;">
-    &copy; 2025 &nbsp;<strong style="color:#666666;">Torrefuerte-Estructural</strong>
+    &copy; 2026 &nbsp;<strong style="color:#666666;">Torrefuerte-Estructural</strong>
     &nbsp;&bull;&nbsp;
     <a href="https://www.torrefuerte.ec" target="_blank"
        style="color:#666666; text-decoration:none;">www.torrefuerte.ec</a>
-    &nbsp;&bull;&nbsp; Todos los derechos reservados
+    &nbsp;&bull;&nbsp; All rights reserved
     <br>
     <span style="font-size:0.72rem;">
-        Herramienta de verificación de columnas RC &mdash;
-        ACI&nbsp;318-22&nbsp;/&nbsp;ASCE&nbsp;41 &mdash; Versión beta
+        RC Column Verification Tool &mdash;
+        ACI&nbsp;318-22&nbsp;/&nbsp;ASCE&nbsp;41 &mdash; Beta version
     </span>
 </div>
 """, unsafe_allow_html=True)
