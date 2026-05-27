@@ -49,6 +49,13 @@ def _apply_project_data(data: dict) -> None:
     """Replace session state with loaded project data, clearing all widget keys."""
     for k in [k for k in list(st.session_state.keys()) if k not in _DATA_KEYS]:
         del st.session_state[k]
+    # Clear stale results from any previous run so the new project starts fresh.
+    for k in (
+        '_results', '_checks', '_failures', '_stdout',
+        '_csv_results', '_csv_checks', '_csv_failures',
+        '_tex_content', '_tex_filename', '_pdf_bytes', '_pdf_compiled',
+    ):
+        st.session_state.pop(k, None)
     st.session_state['column_sections'] = data['column_sections']
     st.session_state['beam_sections']   = data['beam_sections']
     st.session_state['assemblies']      = data['assemblies']
