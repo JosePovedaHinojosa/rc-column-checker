@@ -1388,9 +1388,10 @@ def _run_pipeline() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    _favicon = ROOT / 'assets' / 'logo_browser.PNG'
     st.set_page_config(
         page_title='RC Column Checker',
-        page_icon='🏗️',
+        page_icon=str(_favicon) if _favicon.exists() else '🏗️',
         layout='wide',
         initial_sidebar_state='collapsed',
     )
