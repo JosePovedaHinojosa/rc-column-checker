@@ -484,6 +484,13 @@ def _make_on_page(logo_path: str | None, pry_name: str, column_id: str):
         canvas.setFont('Helvetica', 7.5)
         canvas.setFillColor(colors.HexColor('#555555'))
         canvas.drawCentredString(_W / 2, 9 * mm, str(doc.page))
+        canvas.setFont('Helvetica', 6)
+        canvas.setFillColor(colors.HexColor('#aaaaaa'))
+        canvas.drawCentredString(
+            _W / 2, 5 * mm,
+            '© 2025 Torrefuerte-Estructural · www.torrefuerte.ec · '
+            'Versión beta — no validada exhaustivamente · uso bajo responsabilidad del ingeniero',
+        )
         canvas.restoreState()
     return on_page
 

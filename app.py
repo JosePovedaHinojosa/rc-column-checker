@@ -1396,6 +1396,14 @@ def main() -> None:
     st.title('RC Column Checker')
     st.caption('ACI 318-22 / ASCE 41  ·  Interactive verification tool')
 
+    st.warning(
+        '**⚠️ Versión de prueba — no validada extensivamente.**  '
+        'Esta aplicación se encuentra en fase de desarrollo y **no ha sido validada de forma exhaustiva**. '
+        'Los resultados deben ser revisados y verificados por un ingeniero estructural calificado '
+        'antes de ser utilizados en cualquier proyecto real. '
+        'Torrefuerte-Estructural no asume responsabilidad alguna por el uso de esta herramienta.',
+    )
+
     with st.expander('💾 Project file  —  save / load', expanded=False):
         _project_io_panel()
 
@@ -1448,6 +1456,23 @@ def main() -> None:
         tab_assembly()
     with tab4:
         tab_results()
+
+    st.markdown("""
+<hr style="margin-top:2.5rem; border:none; border-top:1px solid #e0e0e0;">
+<div style="text-align:center; color:#999999; font-size:0.78rem;
+            padding:6px 0 20px 0; line-height:2.0;">
+    &copy; 2025 &nbsp;<strong style="color:#666666;">Torrefuerte-Estructural</strong>
+    &nbsp;&bull;&nbsp;
+    <a href="https://www.torrefuerte.ec" target="_blank"
+       style="color:#666666; text-decoration:none;">www.torrefuerte.ec</a>
+    &nbsp;&bull;&nbsp; Todos los derechos reservados
+    <br>
+    <span style="font-size:0.72rem;">
+        Herramienta de verificación de columnas RC &mdash;
+        ACI&nbsp;318-22&nbsp;/&nbsp;ASCE&nbsp;41 &mdash; Versión beta
+    </span>
+</div>
+""", unsafe_allow_html=True)
 
 
 if __name__ == '__main__':
