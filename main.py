@@ -9,7 +9,8 @@ from aci_transverse_checks import transverse_checks
 from asce41_rotation import compute_asce41_rotation
 from geometry_utils import compute_geometry
 from io_utils import read_inputs
-from pm_diagram import export_pm_diagram
+from pdf_report import build_pdf_report
+from pm_diagram import export_pm_diagram, export_section_sketch
 from reporting import build_latex_report, slugify, write_csv
 from section_capacity import (
     compute_beam_actions,
@@ -212,9 +213,12 @@ def main():
 
         pm_svg_x = pm_pdf_x = pm_png_x = ''
         pm_svg_y = pm_pdf_y = pm_png_y = ''
-        if requested_reports and column_id in requested_reports and not args.skip_pm:
-            pm_svg_x, pm_pdf_x, pm_png_x = export_pm_diagram(column_id, col_x_pm, col_rows, pm_dir, axis='x')
-            pm_svg_y, pm_pdf_y, pm_png_y = export_pm_diagram(column_id, col_y_pm, col_rows, pm_dir, axis='y')
+        section_png_path = ''
+        if requested_reports and column_id in requested_reports:
+            section_png_path = str(export_section_sketch(column_id, prop_row, outdir))
+            if not args.skip_pm:
+                pm_svg_x, pm_pdf_x, pm_png_x = export_pm_diagram(column_id, col_x_pm, col_rows, pm_dir, axis='x')
+                pm_svg_y, pm_pdf_y, pm_png_y = export_pm_diagram(column_id, col_y_pm, col_rows, pm_dir, axis='y')
 
         report_case_contexts = []
         for row in col_rows:
@@ -324,8 +328,13 @@ def main():
             'column_id': column_id, 'prop_row': prop_row, 'geom': geom, 'tr_meta': tr_meta, 'axial': axial,
             'shear_base': shear_base, 'beam_static': beam_actions,
             'joint_static': joint_static, 'flexure0': {'x': flexure0_x, 'y': flexure0_y}, 'static_checks': static_checks,
-            'pm_paths': {'pm_svg_x': pm_svg_x, 'pm_pdf_x': pm_pdf_x, 'pm_svg_y': pm_svg_y, 'pm_pdf_y': pm_pdf_y}, 'cases': report_case_contexts, 'pry_name': args.pry_name,
+            'pm_paths': {
+                'pm_svg_x': pm_svg_x, 'pm_pdf_x': pm_pdf_x, 'pm_png_x': pm_png_x,
+                'pm_svg_y': pm_svg_y, 'pm_pdf_y': pm_pdf_y, 'pm_png_y': pm_png_y,
+            },
+            'cases': report_case_contexts, 'pry_name': args.pry_name,
             'beam_actions': beam_actions,
+            'section_png_path': section_png_path,
             'report_options': {
                 'hide_rotation_table': args.hide_rotation_table,
                 'hide_beam_table': args.hide_beam_table,
@@ -349,13 +358,20 @@ def main():
         for ctx in report_contexts:
             if ctx['column_id'] not in requested_reports:
                 continue
+            slug = slugify(str(ctx['column_id']))
+            # LaTeX report (kept for CLI users who have pdflatex)
             tex = build_latex_report(ctx)
-            filename = f"{slugify(str(ctx['column_id']))}_memoria.tex"
-            (report_dir / filename).write_text(tex, encoding='utf-8')
+            (report_dir / f'{slug}_memoria.tex').write_text(tex, encoding='utf-8')
+            # PDF report via ReportLab (no LaTeX required)
+            try:
+                pdf_bytes = build_pdf_report(ctx)
+                (report_dir / f'{slug}_memoria.pdf').write_bytes(pdf_bytes)
+            except Exception as exc:
+                print(f'Warning: PDF generation failed for {ctx["column_id"]}: {exc}')
             n_reports += 1
-        print(f'Wrote {n_reports} LaTeX report(s) under {report_dir}')
+        print(f'Wrote {n_reports} report(s) (LaTeX + PDF) under {report_dir}')
     else:
-        print('No LaTeX reports requested; P-M diagrams were not generated.')
+        print('No reports requested; P-M diagrams were not generated.')
 
 
 if __name__ == '__main__':

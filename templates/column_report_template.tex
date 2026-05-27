@@ -43,7 +43,9 @@ Barras top/bot/left/right & <<bars_faces>> \\
 \begin{minipage}[t]{0.30\textwidth}
 \vspace{0pt}
 \centering
-\includegraphics[width=\textwidth]{../../sections/<<section_key>>.png}
+\IfFileExists{../sections/<<section_key>>.png}%
+  {\includegraphics[width=\textwidth]{../sections/<<section_key>>.png}}%
+  {}
 \end{minipage}
 
 \section*{Propiedades derivadas}

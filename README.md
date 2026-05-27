@@ -1,6 +1,6 @@
 # RC Column Checker
 
-A command-line tool for automated structural verification of reinforced concrete columns under seismic loading. Implements **ACI 318-22** (Building Code Requirements for Structural Concrete) and **ASCE 41** (Seismic Evaluation and Retrofit of Existing Buildings) checks, and produces CSV result tables, P-M interaction diagrams, and compilable LaTeX engineering reports.
+A command-line tool for automated structural verification of reinforced concrete columns under seismic loading. Implements **ACI 318-22** (Building Code Requirements for Structural Concrete) and **ASCE 41** (Seismic Evaluation and Retrofit of Existing Buildings) checks, and produces CSV result tables, P-M interaction diagrams, cross-section sketches, and engineering reports in both **PDF** (ReportLab, no LaTeX required) and **LaTeX** source formats.
 
 ---
 
@@ -10,19 +10,20 @@ A command-line tool for automated structural verification of reinforced concrete
 2. [Requirements](#requirements)
 3. [Installation](#installation)
 4. [Quick Start](#quick-start)
-5. [CLI Arguments](#cli-arguments)
-6. [Input Files](#input-files)
+5. [Streamlit GUI](#streamlit-gui)
+6. [CLI Arguments](#cli-arguments)
+7. [Input Files](#input-files)
    - [Column Sections CSV](#1-column-sections-csv)
    - [Beam Sections CSV](#2-beam-sections-csv)
    - [Column-Beam Properties CSV](#3-column-beam-properties-csv)
    - [Loads CSV](#4-loads-csv)
-7. [Output Files](#output-files)
+8. [Output Files](#output-files)
    - [column\_results.csv](#column_resultscsv)
    - [column\_checks.csv](#column_checkscsv)
    - [column\_failures.csv](#column_failurescsv)
    - [P-M Diagrams](#pm-diagrams)
-   - [LaTeX Reports](#latex-reports)
-8. [Implemented Checks](#implemented-checks)
+   - [Reports (PDF + LaTeX)](#reports-pdf--latex)
+9. [Implemented Checks](#implemented-checks)
    - [ACI 318-22: Longitudinal Reinforcement](#aci-318-22-longitudinal-reinforcement)
    - [ACI 318-22: Transverse Reinforcement](#aci-318-22-transverse-reinforcement)
    - [ACI 318-22: Flexure and Axial Capacity](#aci-318-22-flexure-and-axial-capacity)
@@ -31,8 +32,8 @@ A command-line tool for automated structural verification of reinforced concrete
    - [ACI 318-22: Joint Shear](#aci-318-22-joint-shear)
    - [ACI 318-22: Gravity Columns (18.14.3.2)](#aci-318-22-gravity-columns-18143)
    - [ASCE 41: Plastic Rotation Acceptance Criteria](#asce-41-plastic-rotation-acceptance-criteria)
-9. [Code Architecture](#code-architecture)
-10. [Notes and Limitations](#notes-and-limitations)
+10. [Code Architecture](#code-architecture)
+11. [Notes and Limitations](#notes-and-limitations)
 
 ---
 
@@ -47,7 +48,7 @@ RC Column Checker takes four CSV input files that describe column sections, beam
 - Applies the strong-column weak-beam (SCWB) rule.
 - Runs all applicable ACI 318-22 detailing checks for longitudinal and transverse reinforcement.
 - Computes ASCE 41 plastic rotation parameters and checks demand against IO / LS / CP acceptance criteria.
-- Exports results to CSV tables, SVG/PDF/PNG P-M diagrams, and fully compilable LaTeX engineering reports.
+- Exports results to CSV tables, SVG/PDF/PNG P-M diagrams, cross-section sketch PNGs, and engineering reports in both ready-to-open PDF (generated directly with ReportLab — no LaTeX installation needed) and LaTeX source formats.
 
 ---
 
@@ -56,10 +57,17 @@ RC Column Checker takes four CSV input files that describe column sections, beam
 - Python 3.9 or later
 - `matplotlib`
 - `numpy`
+- `reportlab` — PDF report generation (pure Python, no system dependencies)
 
-For compiling LaTeX reports:
+**Optional — Streamlit GUI only:**
+- `streamlit`
+- `pandas`
+
+**Optional — LaTeX source compilation (CLI only):**
 - A TeX distribution (TeX Live, MiKTeX, or MacTeX) with `pdflatex` and `latexmk`
 - `booktabs`, `geometry`, `xcolor`, `graphicx`, `longtable` packages (included in most standard distributions)
+
+> **Note:** `pdflatex` is **not** required to get a PDF report. The tool generates a ready-to-open PDF using ReportLab by default. The `.tex` source is an additional output for users who want to customise or recompile the report with LaTeX.
 
 ---
 
@@ -71,7 +79,7 @@ cd rc-column-checker
 pip install -r requirements.txt
 ```
 
-No build step is needed. All calculation logic is in pure Python; `matplotlib` and `numpy` are only used for diagram generation.
+No build step is needed. All calculation logic is in pure Python. `matplotlib` and `numpy` are used for diagram generation; `reportlab` for PDF report assembly.
 
 ---
 
@@ -94,16 +102,31 @@ This creates an `outputs/` directory containing:
 outputs/
 ├── column_results.csv       # Capacity and demand summary (one row per load case)
 ├── column_checks.csv        # All individual checks with status OK / NG / WARNING / INFO
-├── column_failures.csv      # Subset of checks with status NG or WARNING only
-└── pm_diagrams/
-    ├── COL_150x100_PM_x.svg
-    ├── COL_150x100_PM_x.pdf
-    ├── COL_150x100_PM_x.png
-    ├── COL_150x100_PM_y.svg
-    ...
+└── column_failures.csv      # Subset of checks with status NG or WARNING only
 ```
 
-Generate LaTeX reports for selected columns:
+With `--report-columns` or `--report-all`, additional subdirectories are created:
+
+```
+outputs/
+├── column_results.csv
+├── column_checks.csv
+├── column_failures.csv
+├── sections/
+│   └── COL150x100.png                 # Auto-generated cross-section sketch
+├── pm_diagrams/
+│   ├── COL_150x100_PM_x.svg
+│   ├── COL_150x100_PM_x.pdf
+│   ├── COL_150x100_PM_x.png
+│   ├── COL_150x100_PM_y.svg
+│   ├── COL_150x100_PM_y.pdf
+│   └── COL_150x100_PM_y.png
+└── latex_reports/
+    ├── COL150x100_memoria.pdf         # ← Ready-to-open PDF (ReportLab)
+    └── COL150x100_memoria.tex         # ← LaTeX source (optional, for pdflatex)
+```
+
+Generate PDF (and LaTeX) reports for selected columns:
 
 ```bash
 python main.py ^
@@ -116,7 +139,9 @@ python main.py ^
   --pry-name "Project Name"
 ```
 
-Generate LaTeX reports for all columns:
+This creates `outputs/latex_reports/COL_150x100_memoria.pdf` (ready to open) and `outputs/latex_reports/COL_150x100_memoria.tex` (LaTeX source for further customisation).
+
+Generate reports for all columns:
 
 ```bash
 python main.py ^
@@ -146,6 +171,61 @@ python main.py ^
 
 ---
 
+## Streamlit GUI
+
+`app.py` provides a browser-based graphical interface for users who prefer not to work with CSV files and the command line. It covers the same calculation pipeline as `main.py` through a five-tab form.
+
+### Additional requirements
+
+```bash
+pip install streamlit pandas
+```
+
+Both packages are already included in `requirements.txt`.
+
+### Launching the app
+
+```bash
+python -m streamlit run app.py
+```
+
+Streamlit opens a browser tab automatically (default address `http://localhost:8501`). To stop the server, press **Ctrl+C** in the terminal where you launched it. Closing the browser tab does **not** stop the server; you must terminate the process from the terminal.
+
+### Tabs
+
+| Tab | Purpose |
+|---|---|
+| **Column Section** | Define one column cross-section: dimensions, materials, longitudinal reinforcement (bar count and diameter per face), and transverse reinforcement (hoop type, diameter, spacing, hook angle, crosstie options). The number of lateral support legs per direction is set here and drives the `support_lines` field that controls *hx* and *Ash*. A live cross-section sketch (concrete outline, hoop, crossties, bar dots, and dimension arrows) is shown alongside the form. |
+| **Beam Sections** | Define up to two beam cross-sections (one per joint face side) using the same material and reinforcement fields as the column sections CSV. A live section sketch is shown alongside each beam section form. |
+| **Assembly** | Assemble the column instance: story, frame type, clear height, adjacent column sections above and below, and all eight beam slot assignments (four joint faces × two sides). Each beam slot includes span, gravity load, lateral offset, extension, and continuity flag. |
+| **Loads** | Enter one or more factored load combinations (Pu, Mux, Muy, Vux, Vuy, RotX, RotY) and select the ASCE 41 performance level (IO / LS / CP) for each. Rows can be added or removed. |
+| **Results** | Run the full pipeline and view colour-coded output. OK checks appear in green, NG in red, WARNING in amber. Download buttons for `column_results.csv`, `column_checks.csv`, `column_failures.csv`, and the PDF report are provided. |
+
+### Transverse reinforcement and support lines
+
+The **Number of tie legs — x direction** (and y direction) controls on the Column Section tab determine how many lateral support points are distributed across each face:
+
+- **2 legs** = perimeter hoop only (corners supported, no intermediate crossties).
+- **3, 4, … legs** = hoop corners plus evenly distributed crosstie legs.
+
+A live estimate of the resulting *hx* (maximum unsupported bar gap) is shown below each control. When the factored axial load exceeds **0.3 × Ag × f'c** or **f'c > 70 MPa** (ACI 18.7.5.2(f)), the backend activates a stricter *hx* ≤ 200 mm limit and requires every perimeter bar to be laterally supported — the Results tab will flag failures if the configured leg count is insufficient.
+
+### Report generation
+
+Expand the **Report options** section on the Results tab before clicking **Run pipeline**:
+
+- Toggle **Generate PDF report** to produce a full engineering report.
+- Use the multiselect to choose which column instances get a report (all selected = all columns).
+- Enter an optional **Project name** for the report header.
+
+The PDF is built directly with Python (ReportLab) — **no LaTeX installation needed**. Once the run completes, a **⬇ Descargar reporte (.pdf)** download button appears. If more than one column was selected, all PDFs are bundled into a `.zip` archive automatically.
+
+### Output file behaviour
+
+All outputs (CSV tables, diagrams, PDF report) are generated in a temporary directory and read into memory before the pipeline returns. Files are **not** saved to disk permanently. Use the download buttons in the Results tab to save what you need. The CSV files and PDF remain available in the session until you run the pipeline again or close the browser tab.
+
+---
+
 ## CLI Arguments
 
 | Argument | Required | Default | Description |
@@ -156,8 +236,8 @@ python main.py ^
 | `--loads PATH` | Yes | — | CSV of load combinations per column |
 | `--outdir PATH` | No | `outputs` | Output directory (created if absent) |
 | `--skip-pm` | No | off | Skip P-M diagram generation |
-| `--report-columns COL1,COL2` | No | — | Generate LaTeX reports only for listed `column_id` values |
-| `--report-all` | No | off | Generate LaTeX reports for every column |
+| `--report-columns COL1,COL2` | No | — | Generate PDF + LaTeX reports only for listed `column_id` values |
+| `--report-all` | No | off | Generate PDF + LaTeX reports for every column |
 | `--pry-name "Name"` | No | — | Project name shown in report headers |
 | `--hide-rotation-table` | No | off | Omit the ASCE 41 rotation table from reports |
 | `--hide-beam-table` | No | off | Omit the connected beam capacity table from reports |
@@ -435,24 +515,34 @@ To skip diagram generation (faster batch runs), use `--skip-pm`.
 
 ---
 
-### LaTeX Reports
+### Reports (PDF + LaTeX)
 
 Stored in `<outdir>/latex_reports/`. Triggered by `--report-columns` or `--report-all`.
 
-Each report (`{column_id}_memoria.tex`) is a fully compilable LaTeX document containing:
+For each requested column, **two files** are written:
 
-1. **Section properties table**: dimensions, materials, steel areas, ratios.
-2. **Capacity table**: axial, flexural, and shear capacities.
-3. **Static detailing checks**: ACI longitudinal and transverse checks (load-independent).
-4. **Load-dependent checks per combination**: P-M ratios, shear ratios, SCWB ratios, joint ratios.
-5. **ASCE 41 rotation table** (unless `--hide-rotation-table`): parameters a, b, c, acceptance criteria, and demand/capacity ratios.
-6. **Connected beam capacity table** (unless `--hide-beam-table`): beam sections and their flexural contributions.
-7. **Joint shear capacity table** (unless `--hide-joint-table`): joint type, alpha factor, capacity, demand.
-8. **Embedded P-M diagrams**.
+| File | Format | Notes |
+|---|---|---|
+| `{column_id}_memoria.pdf` | PDF (ReportLab) | Ready to open immediately — no LaTeX needed |
+| `{column_id}_memoria.tex` | LaTeX source | For users who want to customise or recompile with pdflatex |
 
-Failed checks (`NG`) and warnings (`WARNING`) and D/C ratios greater than 1.0 are highlighted in red.
+Both files contain the same content:
 
-**Compilation:**
+1. **Section summary** (side-by-side with a cross-section sketch PNG): dimensions, materials, steel areas, ratios.
+2. **Derived properties**: Ag, Ach, As, ρ, hx, lo.
+3. **Capacity table**: axial, flexural, and shear capacities (Pn0, Mn0, Mpr0, Vc+Vs, φVn).
+4. **Static detailing checks**: ACI longitudinal and transverse checks (load-independent).
+5. **Load-dependent checks per combination**: P-M ratios, shear ratios, SCWB ratios, joint ratios.
+6. **ASCE 41 rotation table** (unless `--hide-rotation-table`): parameters a, b, c, acceptance criteria, and demand/capacity ratios — critical combination shown.
+7. **Connected beam capacity table** (unless `--hide-beam-table`): beam sections and their flexural contributions.
+8. **Joint shear capacity table** (unless `--hide-joint-table`): joint type, alpha factor, capacity, demand.
+9. **Embedded P-M diagrams** (x and y axes).
+
+Failed checks (`NG`) and D/C ratios > 1.0 are highlighted in red; warnings in amber.
+
+**Cross-section sketch:** A PNG showing the concrete outline, confinement hoop, crossties, bar positions, and dimension annotations is auto-generated at `<outdir>/sections/{slug}.png` and embedded in both the PDF and LaTeX reports.
+
+**Optional LaTeX compilation:**
 
 ```bash
 cd outputs/latex_reports
@@ -461,9 +551,9 @@ pdflatex COL_150x100_memoria.tex
 latexmk -pdf COL_150x100_memoria.tex
 ```
 
-**Required assets for compilation:**
-- `assets/logo_black_horizontal.png` — located two directory levels above the `.tex` file (i.e., `../../assets/logo_black_horizontal.png` relative to the report).
-- `sections/{column_section_id}.png` — section diagram images located two levels above the `.tex` file (`../../sections/{id}.png`).
+Required assets for LaTeX compilation (not needed for the ReportLab PDF):
+- `assets/logo_black_horizontal.png` — two directory levels above the `.tex` file (`../../assets/`).
+- `sections/{column_section_id}.png` — one level above the `latex_reports/` directory (`../sections/`).
 
 ---
 
@@ -601,24 +691,26 @@ The plastic rotation demand from the loads CSV (`RotX`, `RotY`) is divided by th
 
 ```
 rc-column-checker/
-├── main.py                      # Entry point; CLI parsing, orchestration, result assembly
+├── main.py                      # CLI entry point; argument parsing, orchestration, result assembly
+├── app.py                       # Streamlit GUI; browser-based alternative to main.py
 ├── io_utils.py                  # CSV reading, validation, section/instance merging
 ├── geometry_utils.py            # Geometric property calculations (Ag, Ach, As, hx, rho_s)
 ├── section_capacity.py          # Strain-compatibility analysis, interaction curves, shear/joint capacity
 ├── aci_longitudinal_checks.py   # ACI longitudinal detailing checks
 ├── aci_transverse_checks.py     # ACI transverse detailing checks
 ├── asce41_rotation.py           # ASCE 41 Table 10-8 plastic rotation parameters
-├── pm_diagram.py                # P-M diagram generation (matplotlib)
+├── pm_diagram.py                # P-M diagram + cross-section sketch generation (matplotlib)
 ├── reporting.py                 # LaTeX report assembly
+├── pdf_report.py                # ReportLab PDF report builder (no LaTeX required)
 ├── requirements.txt
 ├── sample_column_sections.csv
 ├── sample_beam_sections.csv
 ├── sample_column_beam_prop.csv
 ├── sample_loads.csv
-├── sections/                    # Section diagram images for reports (PNG)
 ├── templates/                   # LaTeX report template
 ├── assets/
-│   └── logo_black_horizontal.png    # Logo for report header
+│   ├── logo_black_horizontal.png        # Black logo used in LaTeX report headers
+│   └── Logo_horizontal_Torrefuerte.png  # Colour logo used in ReportLab PDF + Streamlit GUI
 ```
 
 ### Data Flow
@@ -656,8 +748,10 @@ For each column:
         └─ [write to column_checks.csv]
     │
     └─ If reports requested:
-        ├─ export_pm_diagram()         → SVG / PDF / PNG
-        └─ build_latex_report()        → .tex file
+        ├─ export_section_sketch()     → sections/{slug}.png  (cross-section diagram)
+        ├─ export_pm_diagram()         → pm_diagrams/{id}_PM_x/y.svg/.pdf/.png
+        ├─ build_latex_report()        → latex_reports/{slug}_memoria.tex
+        └─ build_pdf_report()          → latex_reports/{slug}_memoria.pdf  (ReportLab)
 ```
 
 ---
@@ -679,6 +773,6 @@ For each column:
 
 6. **Cyclic degradation**: No explicit cyclic degradation model is applied. ASCE 41 acceptance criteria are point-in-time plastic rotation limits, not hysteretic energy-based.
 
-7. **LaTeX compilation assets**: To compile the generated report, keep `assets/logo_black_horizontal.png` two directory levels above the `.tex` file (`../../assets/logo_black_horizontal.png`), and section images at `../../sections/{column_section_id}.png`.
+7. **Report outputs**: Two report files are always written together: `{slug}_memoria.pdf` (ReportLab — open immediately, no LaTeX needed) and `{slug}_memoria.tex` (LaTeX source for customisation). The PDF embeds the cross-section sketch and P-M diagrams from the same run. The `.tex` file also references these images; to compile it with `pdflatex` keep `assets/logo_black_horizontal.png` accessible as `../../assets/` and section images at `../sections/` relative to the `latex_reports/` directory.
 
 8. **Version history**: This is version 18 of the tool. Sample files use clean names without version suffix.
