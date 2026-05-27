@@ -771,8 +771,7 @@ For each column:
    - `none` — zero contribution (column terminates at the joint).
    - Any other string — must match a `column_section_id` in the column sections CSV.
 
-6. **Cyclic degradation**: No explicit cyclic degradation model is applied. ASCE 41 acceptance criteria are point-in-time plastic rotation limits, not hysteretic energy-based.
 
-7. **Report outputs**: Two report files are always written together: `{slug}_memoria.pdf` (ReportLab — open immediately, no LaTeX needed) and `{slug}_memoria.tex` (LaTeX source for customisation). The PDF embeds the cross-section sketch and P-M diagrams from the same run. The `.tex` file also references these images; to compile it with `pdflatex` keep `assets/logo_black_horizontal.png` accessible as `../../assets/` and section images at `../sections/` relative to the `latex_reports/` directory.
+6. **Report outputs**: Two report files are always written together: `{slug}_memoria.pdf` (ReportLab — open immediately, no LaTeX needed) and `{slug}_memoria.tex` (LaTeX source for customisation). The PDF embeds the cross-section sketch and P-M diagrams from the same run. The `.tex` file also references these images; to compile it with `pdflatex` keep `assets/logo_black_horizontal.png` accessible as `../../assets/` and section images at `../sections/` relative to the `latex_reports/` directory.
 
-8. **Version history**: This is version 18 of the tool. Sample files use clean names without version suffix.
+7. **Version history**: beta.
