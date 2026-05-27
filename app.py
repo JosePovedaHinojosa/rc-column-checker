@@ -1397,12 +1397,19 @@ def main() -> None:
     )
     _init_state()
 
-    logo_path = ROOT / 'assets' / 'Logo_horizontal_Torrefuerte.png'
-    if logo_path.exists():
-        st.image(str(logo_path), width=260)
-
-    st.title('RC Column Checker')
-    st.caption('ACI 318-22 / ASCE 41  ·  Interactive verification tool')
+    _col_title, _col_logo = st.columns([3, 1])
+    with _col_title:
+        st.title('RC Column Checker')
+        st.caption('ACI 318-22 / ASCE 41  ·  Interactive verification tool')
+    with _col_logo:
+        logo_path = ROOT / 'assets' / 'Logo_horizontal_Torrefuerte.png'
+        if logo_path.exists():
+            st.markdown(
+                '<p style="text-align:right; color:#999999; font-size:0.75rem; '
+                'margin-bottom:2px;">powered by</p>',
+                unsafe_allow_html=True,
+            )
+            st.image(str(logo_path), use_container_width=True)
 
     st.warning(
         '**⚠️ Versión de prueba — no validada extensivamente.**  '
