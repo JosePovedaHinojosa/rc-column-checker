@@ -68,6 +68,13 @@ def export_section_sketch(column_id: str, prop_row: dict, outdir: str | Path) ->
     the ``<<section_key>>`` placeholder in the LaTeX template, so both the
     LaTeX report and the ReportLab PDF builder can embed it directly.
     """
+    # If a PNG was already placed here (e.g. by the Streamlit app from the
+    # live session-state preview), reuse it — avoids regenerating from CSV data.
+    _slug_early = re.split(r'_chain|_st\d+|_story\d+', str(column_id).strip(), maxsplit=1)[0].replace('_', '')
+    _early_path = Path(outdir) / 'sections' / f'{_slug_early}.png'
+    if _early_path.exists():
+        return _early_path
+
     b      = float(prop_row.get('b_mm', 400))
     h      = float(prop_row.get('h_mm', 400))
     cover  = float(prop_row.get('cover_mm', 40))
@@ -167,6 +174,7 @@ def export_section_sketch(column_id: str, prop_row: dict, outdir: str | Path) ->
     sections_dir = Path(outdir) / 'sections'
     sections_dir.mkdir(parents=True, exist_ok=True)
     png_path = sections_dir / f'{slug}.png'
+
     fig.savefig(str(png_path), dpi=150, bbox_inches='tight')
     plt.close(fig)
     return png_path

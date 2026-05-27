@@ -11,6 +11,7 @@ import hashlib
 import io
 import json
 import math
+import re
 import subprocess
 import sys
 import tempfile
@@ -1289,6 +1290,24 @@ def _run_pipeline() -> None:
         loads_f  = tmp / 'loads.csv'
         outdir   = tmp / 'out'
         outdir.mkdir()
+
+        # Pre-generate section PNGs from live session state so the PDF report
+        # contains exactly the sketch shown in the Column Sections preview tab.
+        # pm_diagram.export_section_sketch will skip regenerating if the file exists.
+        _sec_lookup = {s['section_id']: s for s in st.session_state['column_sections']}
+        _sections_dir = outdir / 'sections'
+        _sections_dir.mkdir(parents=True, exist_ok=True)
+        for _asm in st.session_state['assemblies']:
+            _sec = _sec_lookup.get(str(_asm.get('col_section_id', '')))
+            if _sec is None:
+                continue
+            _slug = re.split(
+                r'_chain|_st\d+|_story\d+',
+                str(_asm['col_id']).strip(), maxsplit=1,
+            )[0].replace('_', '')
+            _fig = _draw_column_section(_sec)
+            _fig.savefig(str(_sections_dir / f'{_slug}.png'), dpi=150, bbox_inches='tight')
+            plt.close(_fig)
 
         _write_column_sections_csv(col_sec)
         _write_beam_sections_csv(beam_sec)

@@ -22,6 +22,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     HRFlowable,
     Image,
@@ -169,9 +170,16 @@ def _s_input_summary(row: dict, section_png: str) -> list:
     ]
     param_tbl = _tbl(params, [48 * mm, 32 * mm])
 
-    sketch_w = 60 * mm
+    _SKT_MAX_W = 58 * mm   # max sketch width
+    _SKT_MAX_H = 85 * mm   # max sketch height (allows tall columns without overflowing)
     if section_png and Path(section_png).exists():
-        sketch: Any = Image(str(section_png), width=sketch_w, height=sketch_w * 1.1)
+        try:
+            _ir = ImageReader(section_png)
+            _iw, _ih = _ir.getSize()
+            _scale = min(_SKT_MAX_W / _iw, _SKT_MAX_H / _ih)
+            sketch: Any = Image(str(section_png), width=_iw * _scale, height=_ih * _scale)
+        except Exception:
+            sketch: Any = Paragraph('(sección no disponible)', _S_SMALL)
     else:
         sketch = Paragraph('(sección no disponible)', _S_SMALL)
 
