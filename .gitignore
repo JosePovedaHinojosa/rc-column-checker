@@ -1,3 +1,6 @@
+# Claude Code internal files
+.claude/
+
 # Python
 __pycache__/
 *.py[cod]
