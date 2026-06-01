@@ -41,6 +41,7 @@ _DATA_KEYS: frozenset[str] = frozenset({
     '_results', '_checks', '_failures', '_stdout',
     '_csv_results', '_csv_checks', '_csv_failures',
     '_tex_content', '_tex_filename', '_pdf_bytes', '_pdf_compiled',
+    '_pdf_det_bytes', '_pdf_det_filename',
     '_loaded_hash',
 })
 
@@ -54,6 +55,7 @@ def _apply_project_data(data: dict) -> None:
         '_results', '_checks', '_failures', '_stdout',
         '_csv_results', '_csv_checks', '_csv_failures',
         '_tex_content', '_tex_filename', '_pdf_bytes', '_pdf_compiled',
+        '_pdf_det_bytes', '_pdf_det_filename',
     ):
         st.session_state.pop(k, None)
     st.session_state['column_sections'] = data['column_sections']
@@ -1263,16 +1265,30 @@ def tab_results() -> None:
 
     pdf      = st.session_state.get('_pdf_bytes')
     pdf_name = st.session_state.get('_tex_filename') or 'report_memoria.pdf'
+    pdf_det      = st.session_state.get('_pdf_det_bytes')
+    pdf_det_name = st.session_state.get('_pdf_det_filename') or 'report_detailed.pdf'
 
-    if pdf:
-        st.subheader('📄 Reporte PDF')
-        is_zip = pdf_name.endswith('.zip')
-        st.download_button(
-            '⬇ Descargar reporte' + (' (.zip)' if is_zip else ' (.pdf)'),
-            data=pdf,
-            file_name=pdf_name,
-            mime='application/zip' if is_zip else 'application/pdf',
-        )
+    if pdf or pdf_det:
+        st.subheader('📄 PDF Reports')
+        dl1, dl2 = st.columns(2)
+        if pdf:
+            is_zip = pdf_name.endswith('.zip')
+            dl1.download_button(
+                '⬇ Summary report' + (' (.zip)' if is_zip else ' (.pdf)'),
+                data=pdf,
+                file_name=pdf_name,
+                mime='application/zip' if is_zip else 'application/pdf',
+                help='Concise report: input summary, capacities, checks, and P-M diagrams.',
+            )
+        if pdf_det:
+            is_zip_det = pdf_det_name.endswith('.zip')
+            dl2.download_button(
+                '⬇ Detailed report' + (' (.zip)' if is_zip_det else ' (.pdf)'),
+                data=pdf_det,
+                file_name=pdf_det_name,
+                mime='application/zip' if is_zip_det else 'application/pdf',
+                help='Step-by-step calculations with equations — intended for learning and verification.',
+            )
     elif st.session_state.get('report_requested'):
         st.warning('Report was requested but no PDF was generated. Check the calculation log.')
 
@@ -1360,26 +1376,41 @@ def _run_pipeline() -> None:
         st.session_state['_csv_checks']   = (outdir / 'column_checks.csv').read_text(encoding='utf-8')
         st.session_state['_csv_failures'] = (outdir / 'column_failures.csv').read_text(encoding='utf-8')
 
-        st.session_state['_tex_content']  = None
-        st.session_state['_tex_filename'] = None
-        st.session_state['_pdf_bytes']    = None
-        st.session_state['_pdf_compiled'] = False
+        st.session_state['_tex_content']      = None
+        st.session_state['_tex_filename']     = None
+        st.session_state['_pdf_bytes']        = None
+        st.session_state['_pdf_compiled']     = False
+        st.session_state['_pdf_det_bytes']    = None
+        st.session_state['_pdf_det_filename'] = None
 
         if generate_report:
             report_dir = outdir / 'latex_reports'
-            pdf_files  = sorted(report_dir.glob('*.pdf')) if report_dir.exists() else []
-            if len(pdf_files) == 1:
-                st.session_state['_pdf_bytes']    = pdf_files[0].read_bytes()
-                st.session_state['_tex_filename'] = pdf_files[0].name
+            # Summary reports (*_memoria.pdf)
+            summary_pdfs = sorted(report_dir.glob('*_memoria.pdf')) if report_dir.exists() else []
+            if len(summary_pdfs) == 1:
+                st.session_state['_pdf_bytes']    = summary_pdfs[0].read_bytes()
+                st.session_state['_tex_filename'] = summary_pdfs[0].name
                 st.session_state['_pdf_compiled'] = True
-            elif len(pdf_files) > 1:
+            elif len(summary_pdfs) > 1:
                 buf = io.BytesIO()
                 with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    for pf in pdf_files:
+                    for pf in summary_pdfs:
                         zf.write(pf, pf.name)
                 st.session_state['_pdf_bytes']    = buf.getvalue()
                 st.session_state['_tex_filename'] = 'column_reports.zip'
                 st.session_state['_pdf_compiled'] = True
+            # Detailed step-by-step reports (*_detailed.pdf)
+            det_pdfs = sorted(report_dir.glob('*_detailed.pdf')) if report_dir.exists() else []
+            if len(det_pdfs) == 1:
+                st.session_state['_pdf_det_bytes']    = det_pdfs[0].read_bytes()
+                st.session_state['_pdf_det_filename'] = det_pdfs[0].name
+            elif len(det_pdfs) > 1:
+                buf2 = io.BytesIO()
+                with zipfile.ZipFile(buf2, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for pf in det_pdfs:
+                        zf.write(pf, pf.name)
+                st.session_state['_pdf_det_bytes']    = buf2.getvalue()
+                st.session_state['_pdf_det_filename'] = 'column_reports_detailed.zip'
 
 
 # ─────────────────────────────────────────────────────────────────────────────

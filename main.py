@@ -10,6 +10,7 @@ from asce41_rotation import compute_asce41_rotation
 from geometry_utils import compute_geometry
 from io_utils import read_inputs
 from pdf_report import build_pdf_report
+from pdf_report_detailed import build_detailed_pdf_report
 from pm_diagram import export_pm_diagram, export_section_sketch
 from reporting import build_latex_report, slugify, write_csv
 from section_capacity import (
@@ -368,6 +369,12 @@ def main():
                 (report_dir / f'{slug}_memoria.pdf').write_bytes(pdf_bytes)
             except Exception as exc:
                 print(f'Warning: PDF generation failed for {ctx["column_id"]}: {exc}')
+            # Detailed step-by-step educational report
+            try:
+                pdf_det = build_detailed_pdf_report(ctx)
+                (report_dir / f'{slug}_detailed.pdf').write_bytes(pdf_det)
+            except Exception as exc:
+                print(f'Warning: Detailed PDF generation failed for {ctx["column_id"]}: {exc}')
             n_reports += 1
         print(f'Wrote {n_reports} report(s) (LaTeX + PDF) under {report_dir}')
     else:
