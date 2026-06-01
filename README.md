@@ -1,6 +1,6 @@
 # RC Column Checker
 
-A command-line tool for automated structural verification of reinforced concrete columns under seismic loading. Implements **ACI 318-22** (Building Code Requirements for Structural Concrete) and **ASCE 41** (Seismic Evaluation and Retrofit of Existing Buildings) checks, and produces CSV result tables, P-M interaction diagrams, cross-section sketches, and engineering reports in both **PDF** (ReportLab, no LaTeX required) and **LaTeX** source formats.
+A structural verification tool for reinforced concrete columns under seismic loading. Available as a **browser-based web app** (Streamlit) and a **command-line interface**. Implements **ACI 318-22** and **ASCE 41** checks, and produces CSV result tables, P-M interaction diagrams, cross-section sketches, and two PDF report formats: a concise summary report and a detailed step-by-step educational report — both generated with ReportLab (no LaTeX required).
 
 ---
 
@@ -22,7 +22,7 @@ A command-line tool for automated structural verification of reinforced concrete
    - [column\_checks.csv](#column_checkscsv)
    - [column\_failures.csv](#column_failurescsv)
    - [P-M Diagrams](#pm-diagrams)
-   - [Reports (PDF + LaTeX)](#reports-pdf--latex)
+   - [Reports (PDF)](#reports-pdf)
 9. [Implemented Checks](#implemented-checks)
    - [ACI 318-22: Longitudinal Reinforcement](#aci-318-22-longitudinal-reinforcement)
    - [ACI 318-22: Transverse Reinforcement](#aci-318-22-transverse-reinforcement)
@@ -39,7 +39,7 @@ A command-line tool for automated structural verification of reinforced concrete
 
 ## What It Does
 
-RC Column Checker takes four CSV input files that describe column sections, beam sections, column-to-beam joint assemblies, and load combinations. For each column under each load case, it:
+RC Column Checker takes four CSV input files (or equivalent data entered through the GUI) describing column sections, beam sections, column-to-beam joint assemblies, and load combinations. For each column under each load case, it:
 
 - Computes geometric properties (gross area, confined core area, reinforcement ratios, maximum unsupported bar spacing).
 - Builds the biaxial P-M interaction surface using strain-compatibility analysis with a Whitney stress block.
@@ -48,38 +48,39 @@ RC Column Checker takes four CSV input files that describe column sections, beam
 - Applies the strong-column weak-beam (SCWB) rule.
 - Runs all applicable ACI 318-22 detailing checks for longitudinal and transverse reinforcement.
 - Computes ASCE 41 plastic rotation parameters and checks demand against IO / LS / CP acceptance criteria.
-- Exports results to CSV tables, SVG/PDF/PNG P-M diagrams, cross-section sketch PNGs, and engineering reports in both ready-to-open PDF (generated directly with ReportLab — no LaTeX installation needed) and LaTeX source formats.
+- Exports results to CSV tables, SVG/PDF/PNG P-M diagrams, cross-section sketch PNGs, and two PDF report formats.
 
 ---
 
 ## Requirements
 
-- Python 3.9 or later
+- **Python 3.11 or later** (required — ReportLab uses `hashlib` features introduced in 3.11)
 - `matplotlib`
 - `numpy`
-- `reportlab` — PDF report generation (pure Python, no system dependencies)
-
-**Optional — Streamlit GUI only:**
-- `streamlit`
 - `pandas`
+- `reportlab` — PDF report generation (pure Python, no system dependencies)
+- `streamlit` — web GUI
+
+All packages are listed in `requirements.txt`. Install them with:
+
+```bash
+pip install -r requirements.txt
+```
 
 **Optional — LaTeX source compilation (CLI only):**
-- A TeX distribution (TeX Live, MiKTeX, or MacTeX) with `pdflatex` and `latexmk`
-- `booktabs`, `geometry`, `xcolor`, `graphicx`, `longtable` packages (included in most standard distributions)
-
-> **Note:** `pdflatex` is **not** required to get a PDF report. The tool generates a ready-to-open PDF using ReportLab by default. The `.tex` source is an additional output for users who want to customise or recompile the report with LaTeX.
+A TeX distribution (`pdflatex` / `latexmk`) to compile the `.tex` source output. The PDF report itself does **not** require LaTeX.
 
 ---
 
 ## Installation
 
 ```bash
-git clone https://github.com/your-org/rc-column-checker.git
+git clone https://github.com/JosePovedaHinojosa/rc-column-checker.git
 cd rc-column-checker
 pip install -r requirements.txt
 ```
 
-No build step is needed. All calculation logic is in pure Python. `matplotlib` and `numpy` are used for diagram generation; `reportlab` for PDF report assembly.
+No build step is needed. All calculation logic is in pure Python.
 
 ---
 
@@ -113,35 +114,17 @@ outputs/
 ├── column_checks.csv
 ├── column_failures.csv
 ├── sections/
-│   └── COL150x100.png                 # Auto-generated cross-section sketch
+│   └── COL150x100.png                   # Auto-generated cross-section sketch
 ├── pm_diagrams/
-│   ├── COL_150x100_PM_x.svg
-│   ├── COL_150x100_PM_x.pdf
-│   ├── COL_150x100_PM_x.png
-│   ├── COL_150x100_PM_y.svg
-│   ├── COL_150x100_PM_y.pdf
-│   └── COL_150x100_PM_y.png
+│   ├── COL_150x100_PM_x.svg/.pdf/.png
+│   └── COL_150x100_PM_y.svg/.pdf/.png
 └── latex_reports/
-    ├── COL150x100_memoria.pdf         # ← Ready-to-open PDF (ReportLab)
-    └── COL150x100_memoria.tex         # ← LaTeX source (optional, for pdflatex)
+    ├── COL150x100_memoria.pdf           # Summary report (ReportLab)
+    ├── COL150x100_memoria.tex           # LaTeX source (optional, for pdflatex)
+    └── COL150x100_detailed.pdf          # Step-by-step educational report (ReportLab)
 ```
 
-Generate PDF (and LaTeX) reports for selected columns:
-
-```bash
-python main.py ^
-  --column-sections sample_column_sections.csv ^
-  --beam-sections sample_beam_sections.csv ^
-  --column-beam sample_column_beam_prop.csv ^
-  --loads sample_loads.csv ^
-  --outdir outputs ^
-  --report-columns COL_150x100,COL_150x100_ROOF ^
-  --pry-name "Project Name"
-```
-
-This creates `outputs/latex_reports/COL_150x100_memoria.pdf` (ready to open) and `outputs/latex_reports/COL_150x100_memoria.tex` (LaTeX source for further customisation).
-
-Generate reports for all columns:
+Generate PDF reports for all columns:
 
 ```bash
 python main.py ^
@@ -154,75 +137,50 @@ python main.py ^
   --pry-name "Project Name"
 ```
 
-Generate a report while hiding optional sections:
-
-```bash
-python main.py ^
-  --column-sections sample_column_sections.csv ^
-  --beam-sections sample_beam_sections.csv ^
-  --column-beam sample_column_beam_prop.csv ^
-  --loads sample_loads.csv ^
-  --outdir outputs ^
-  --report-columns COL_150x100 ^
-  --pry-name "Project Name" ^
-  --hide-rotation-table ^
-  --hide-joint-table
-```
-
 ---
 
 ## Streamlit GUI
 
-`app.py` provides a browser-based graphical interface for users who prefer not to work with CSV files and the command line. It covers the same calculation pipeline as `main.py` through a five-tab form.
+`app.py` provides a browser-based interface covering the same calculation pipeline as `main.py`. It is also deployed on Streamlit Cloud.
 
-### Additional requirements
-
-```bash
-pip install streamlit pandas
-```
-
-Both packages are already included in `requirements.txt`.
-
-### Launching the app
+### Launching locally
 
 ```bash
 python -m streamlit run app.py
 ```
 
-Streamlit opens a browser tab automatically (default address `http://localhost:8501`). To stop the server, press **Ctrl+C** in the terminal where you launched it. Closing the browser tab does **not** stop the server; you must terminate the process from the terminal.
+Streamlit opens a browser tab automatically (default `http://localhost:8501`). Stop the server with **Ctrl+C** in the terminal.
 
 ### Tabs
 
 | Tab | Purpose |
 |---|---|
-| **Column Section** | Define one column cross-section: dimensions, materials, longitudinal reinforcement (bar count and diameter per face), and transverse reinforcement (hoop type, diameter, spacing, hook angle, crosstie options). The number of lateral support legs per direction is set here and drives the `support_lines` field that controls *hx* and *Ash*. A live cross-section sketch (concrete outline, hoop, crossties, bar dots, and dimension arrows) is shown alongside the form. |
-| **Beam Sections** | Define up to two beam cross-sections (one per joint face side) using the same material and reinforcement fields as the column sections CSV. A live section sketch is shown alongside each beam section form. |
-| **Assembly** | Assemble the column instance: story, frame type, clear height, adjacent column sections above and below, and all eight beam slot assignments (four joint faces × two sides). Each beam slot includes span, gravity load, lateral offset, extension, and continuity flag. |
-| **Loads** | Enter one or more factored load combinations (Pu, Mux, Muy, Vux, Vuy, RotX, RotY) and select the ASCE 41 performance level (IO / LS / CP) for each. Rows can be added or removed. |
-| **Results** | Run the full pipeline and view colour-coded output. OK checks appear in green, NG in red, WARNING in amber. Download buttons for `column_results.csv`, `column_checks.csv`, `column_failures.csv`, and the PDF report are provided. |
-
-### Transverse reinforcement and support lines
-
-The **Number of tie legs — x direction** (and y direction) controls on the Column Section tab determine how many lateral support points are distributed across each face:
-
-- **2 legs** = perimeter hoop only (corners supported, no intermediate crossties).
-- **3, 4, … legs** = hoop corners plus evenly distributed crosstie legs.
-
-A live estimate of the resulting *hx* (maximum unsupported bar gap) is shown below each control. When the factored axial load exceeds **0.3 × Ag × f'c** or **f'c > 70 MPa** (ACI 18.7.5.2(f)), the backend activates a stricter *hx* ≤ 200 mm limit and requires every perimeter bar to be laterally supported — the Results tab will flag failures if the configured leg count is insufficient.
+| **Column Section** | Define column cross-sections: dimensions, materials, longitudinal reinforcement (bar count and diameter per face), and transverse reinforcement (hoop type, diameter, spacing, hook angle, crossties). A live cross-section sketch updates in real time alongside the form. |
+| **Beam Sections** | Define beam cross-sections. A live section sketch is shown alongside the form. |
+| **Assembly** | Assemble the column instance: story, frame type, clear height, adjacent column sections, and all eight beam slot assignments (four joint faces × two sides). |
+| **Loads** | Enter factored load combinations (Pu, Mux, Muy, Vux, Vuy, RotX, RotY) and ASCE 41 performance level (IO / LS / CP) per case. |
+| **Results** | Run the full pipeline and view colour-coded output. Download CSV results, summary PDF, and detailed PDF reports. |
 
 ### Report generation
 
-Expand the **Report options** section on the Results tab before clicking **Run pipeline**:
+Expand the **Report options** section on the Results tab before clicking **▶ Run Checks**:
 
-- Toggle **Generate PDF report** to produce a full engineering report.
+- Toggle **Generate PDF report** to produce reports.
 - Use the multiselect to choose which column instances get a report (all selected = all columns).
 - Enter an optional **Project name** for the report header.
 
-The PDF is built directly with Python (ReportLab) — **no LaTeX installation needed**. Once the run completes, a **⬇ Descargar reporte (.pdf)** download button appears. If more than one column was selected, all PDFs are bundled into a `.zip` archive automatically.
+Once the run completes, two download buttons appear side by side:
 
-### Output file behaviour
+| Button | File | Contents |
+|---|---|---|
+| **⬇ Summary report** | `*_memoria.pdf` | Input summary, capacities, checks table, P-M diagrams |
+| **⬇ Detailed report** | `*_detailed.pdf` | Step-by-step calculations with equations for every check (educational) |
 
-All outputs (CSV tables, diagrams, PDF report) are generated in a temporary directory and read into memory before the pipeline returns. Files are **not** saved to disk permanently. Use the download buttons in the Results tab to save what you need. The CSV files and PDF remain available in the session until you run the pipeline again or close the browser tab.
+If more than one column was selected, all PDFs of each type are bundled into separate `.zip` archives automatically.
+
+### Save / Load projects
+
+Use the **💾 Project file — save / load** panel above the tabs to export the current session as a JSON file, or load a previously saved project. Loading a new project clears all previous results automatically.
 
 ---
 
@@ -236,12 +194,12 @@ All outputs (CSV tables, diagrams, PDF report) are generated in a temporary dire
 | `--loads PATH` | Yes | — | CSV of load combinations per column |
 | `--outdir PATH` | No | `outputs` | Output directory (created if absent) |
 | `--skip-pm` | No | off | Skip P-M diagram generation |
-| `--report-columns COL1,COL2` | No | — | Generate PDF + LaTeX reports only for listed `column_id` values |
-| `--report-all` | No | off | Generate PDF + LaTeX reports for every column |
+| `--report-columns COL1,COL2` | No | — | Generate reports only for listed `column_id` values |
+| `--report-all` | No | off | Generate reports for every column |
 | `--pry-name "Name"` | No | — | Project name shown in report headers |
-| `--hide-rotation-table` | No | off | Omit the ASCE 41 rotation table from reports |
-| `--hide-beam-table` | No | off | Omit the connected beam capacity table from reports |
-| `--hide-joint-table` | No | off | Omit the joint shear capacity table from reports |
+| `--hide-rotation-table` | No | off | Omit the ASCE 41 rotation table from summary reports |
+| `--hide-beam-table` | No | off | Omit the connected beam capacity table from summary reports |
+| `--hide-joint-table` | No | off | Omit the joint shear capacity table from summary reports |
 
 ---
 
@@ -253,7 +211,7 @@ The tool requires **four CSV files**. All use comma-separated format with a head
 
 ### 1. Column Sections CSV
 
-Defines a reusable library of column cross-sections. One row per section ID. Referenced from the column-beam properties file.
+Defines a reusable library of column cross-sections. One row per section ID.
 
 **Sample:** `sample_column_sections.csv`
 
@@ -306,15 +264,13 @@ These define the positions of intermediate hoops and crossties along each face, 
 | `support_lines_left_mm` | `"v1;v2;..."` | Distances from bottom edge on left face |
 | `support_lines_right_mm` | `"v1;v2;..."` | Distances from bottom edge on right face |
 
-Example: `"40;190;340;500;660;810;960"` for a face with 7 bars each 150 mm apart with 40 mm end cover.
-
 #### ASCE 41 Parameters (Optional)
 
 | Field | Default | Description |
 |---|---|---|
 | `asce_fye_factor` | `1.25` | Expected/nominal strength ratio for longitudinal steel (*fye/fy*) |
 | `asce_fyte_factor` | `1.25` | Expected/nominal strength ratio for transverse steel (*fyte/fyt*) |
-| `asce_splice_controlled` | `False` | `True` if lap splices control rotational behavior (ASCE 41 Table 10-8 splice branch) |
+| `asce_splice_controlled` | `False` | `True` if lap splices control rotational behavior |
 | `asce_splice_two_tie_groups` | `True` | `True` if two or more tie groups overlap the splice |
 | `asce_ties_adequately_anchored` | `True` | `True` if ties at the splice are adequately anchored |
 
@@ -327,14 +283,12 @@ Example: `"40;190;340;500;660;810;960"` for a face with 7 bars each 150 mm apart
 | `rho_max` | `0.08` | Maximum longitudinal reinforcement ratio |
 | `n_bars_min_rect` | `4` | Minimum number of bars for rectangular section |
 | `free_spacing_min_mm` | `40` | Minimum clear spacing between longitudinal bars |
-| `cover_additional_transverse_cover_mm` | `999` | Additional cover outside confinement zone (ACI 18.7.5.7) |
-| `cover_additional_transverse_spacing_mm` | `999` | Additional spacing tie requirement |
 
 ---
 
 ### 2. Beam Sections CSV
 
-Defines a reusable library of beam cross-sections. Referenced from the column-beam properties file to describe beams framing into each joint face.
+Defines a reusable library of beam cross-sections.
 
 **Sample:** `sample_beam_sections.csv`
 
@@ -357,7 +311,7 @@ Defines a reusable library of beam cross-sections. Referenced from the column-be
 
 ### 3. Column-Beam Properties CSV
 
-One row per column instance (not per section). References a column section and defines the structural context: story, frame type, adjacent columns, and beams on each joint face.
+One row per column instance. References a column section and defines the structural context.
 
 **Sample:** `sample_column_beam_prop.csv`
 
@@ -367,66 +321,53 @@ One row per column instance (not per section). References a column section and d
 |---|---|---|---|
 | `column_id` | string | — | Unique column instance identifier |
 | `story` | int/string | — | Story number or label |
-| `frame_type` | string | — | `SMF` (Special Moment Frame), `IMF`, `OMF`, `Gravity`, or other |
+| `frame_type` | string | — | `SMF`, `IMF`, `OMF`, `Gravity`, or other |
 | `column_section_id` | string | — | ID of the section in the column sections CSV |
 | `clear_height_mm` | float | — | Clear height between restraints (mm) |
-| `lu_mm` | float | `clear_height_mm` | Unbraced length used for transverse checks; defaults to clear height if omitted |
+| `lu_mm` | float | `clear_height_mm` | Unbraced length; defaults to clear height if omitted |
 
 #### Adjacent Column Sections
 
-Used for the Strong Column Weak Beam check. Contributions from columns above and below are summed.
-
 | Field | Type | Description |
 |---|---|---|
-| `top_other_column_section_id` | string | Column section above. Use `same` to reuse current section, `none` for no column above |
-| `bottom_other_column_section_id` | string | Column section below. Same `same`/`none` convention |
+| `top_other_column_section_id` | string | Column section above (`same`, `none`, or a section ID) |
+| `bottom_other_column_section_id` | string | Column section below |
 | `joint_top` | bool | `True` if the column continues through the top joint |
 | `joint_bottom` | bool | `True` if the column continues through the bottom joint |
 
-#### Beam Definitions (8 faces × 2 sides)
+#### Beam Definitions (8 slots: 4 faces × 2 sides)
 
-There are four joint faces (`top_x`, `bottom_x`, `top_y`, `bottom_y`) and two beam slots per face (`side1`, `side2`). For a face with only one beam, populate `side1` and leave `side2` as `none`.
-
-For each combination `{face}_{side}` (e.g., `beam_top_x_side1`):
+For each `{face}_{side}` combination (e.g., `beam_top_x_side1`):
 
 | Field | Type | Description |
 |---|---|---|
-| `{face}_{side}_section_id` | string | Beam section ID, or `none` for no beam |
+| `{face}_{side}_section_id` | string | Beam section ID, or `none` |
 | `{face}_{side}_ln_mm` | float | Clear span of beam (mm) |
-| `{face}_{side}_wu_kN_per_m` | float | Factored gravity load on beam (kN/m), used for joint shear demand |
-| `{face}_{side}_x_mm` | float | Lateral offset of beam centerline from column centerline (mm), used to compute effective joint width |
-| `{face}_{side}_ext_mm` | float | Beam extension beyond the joint face (mm), relevant for exterior joints |
+| `{face}_{side}_wu_kN_per_m` | float | Factored gravity load (kN/m) |
+| `{face}_{side}_x_mm` | float | Lateral offset from column centerline (mm) |
+| `{face}_{side}_ext_mm` | float | Beam extension beyond the joint face (mm) |
 | `{face}_{side}_continuous` | bool | `True` if beam is continuous through the joint |
-
-#### Optional Flags
-
-| Field | Default | Description |
-|---|---|---|
-| `yielding_region_expected` | `True` | Whether plastic hinging is expected at this column (affects transverse check branches) |
-| `gravity_design_actions_checked` | `True` | Whether gravity-only design actions have been checked (ACI 18.14.3.2) |
-| `seismic_design_category` | `'D'` | SDC used to activate gravity column checks |
-| `notes` | — | Free-text notes, not used in calculations |
 
 ---
 
 ### 4. Loads CSV
 
-One row per load combination per column. A single `column_id` may have many rows (load cases).
+One row per load combination per column.
 
 **Sample:** `sample_loads.csv`
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `column_id` | string | — | Must match a `column_id` in the column-beam file |
-| `load_case` | string | — | Load combination label (e.g., `Fz_max`, `Combo_2`) |
+| `load_case` | string | — | Load combination label |
 | `Pu_kN` | float | — | Factored axial force (kN); positive = compression |
 | `Mux_kNm` | float | — | Factored moment about the x-axis (kN·m) |
 | `Muy_kNm` | float | — | Factored moment about the y-axis (kN·m) |
 | `Vux_kN` | float | — | Factored shear in x-direction (kN) |
 | `Vuy_kN` | float | — | Factored shear in y-direction (kN) |
-| `RotX` | float | `0.0` | Plastic rotation demand about x-axis (rad), from nonlinear analysis |
+| `RotX` | float | `0.0` | Plastic rotation demand about x-axis (rad) |
 | `RotY` | float | `0.0` | Plastic rotation demand about y-axis (rad) |
-| `damage_state` | string | `'CP'` | Performance level: `IO` (Immediate Occupancy), `LS` (Life Safety), or `CP` (Collapse Prevention) |
+| `damage_state` | string | `'CP'` | Performance level: `IO`, `LS`, or `CP` |
 
 ---
 
@@ -440,120 +381,81 @@ All outputs are written to the directory specified by `--outdir`.
 
 One row per column per load case. Contains all computed capacity and demand values.
 
-Key columns include:
-
-| Column | Description |
-|---|---|
-| `column_id`, `load_case` | Identifiers |
-| `Ag_mm2`, `Ach_mm2` | Gross and confined core areas |
-| `As_mm2`, `rho_long` | Longitudinal steel area and ratio |
-| `hx_mm`, `rho_s` | Max unsupported bar spacing and transverse steel ratio |
-| `phiPn0_kN` | Design axial capacity (phi × Pn0) |
-| `phiMn_x_kNm`, `phiMn_y_kNm` | Design flexural capacity at applied Pu |
-| `Mpr_x_kNm`, `Mpr_y_kNm` | Probable flexural capacity at applied Pu |
-| `phi_x`, `phi_y` | Strength reduction factors |
-| `pm_ratio_x`, `pm_ratio_y` | P-M demand/capacity ratios (should be ≤ 1.0) |
-| `Ve_x_kN`, `Ve_y_kN` | Probable seismic shear demand |
-| `phiVn_x_kN`, `phiVn_y_kN` | Design shear capacity |
-| `shear_ratio_x`, `shear_ratio_y` | Shear demand/capacity ratios |
-| `scwb_ratio_x`, `scwb_ratio_y` | Strong-column weak-beam ratios (should be ≥ 1.2) |
-| `a_x`, `b_x`, `c_x` | ASCE 41 Table 10-8 parameters for x-direction |
-| `theta_io_x`, `theta_ls_x`, `theta_cp_x` | ASCE 41 rotation limits for x |
-| `asce_ratio_x`, `asce_ratio_y` | ASCE 41 rotation demand/capacity ratios |
-| `joint_Vn_x_kN`, `joint_Vn_y_kN` | Joint shear capacity |
-| `joint_ratio_x`, `joint_ratio_y` | Joint demand/capacity ratios |
-
 ---
 
 ### column\_checks.csv
 
-All individual code checks in tabular form. One row per check per column per load case.
+All individual code checks in tabular form.
 
 | Column | Description |
 |---|---|
 | `column_id` | Column instance |
-| `load_case` | `ALL` for static checks independent of load, otherwise the specific case |
-| `check_name` | Short identifier for the check (e.g., `rho_longitudinal_min`, `hx_general_limit`) |
+| `load_case` | `ALL` for load-independent checks, otherwise the specific combination |
+| `check_name` | Short identifier (e.g., `rho_longitudinal_min`, `hx_general_limit`) |
 | `status` | `OK`, `NG`, `WARNING`, or `INFO` |
 | `provided` | Computed value |
-| `required` | Requirement string (e.g., `>= 0.010`, `<= 350 mm`) |
-| `code_ref` | Code clause (e.g., `ACI 18.7.5.2(e)`, `ASCE 41 Table 10-8`) |
+| `required` | Requirement string (e.g., `>= 0.010`) |
+| `code_ref` | Code clause (e.g., `ACI 18.7.5.2(e)`) |
 | `message` | Plain-language explanation |
-
-**Status meanings:**
-
-| Status | Meaning |
-|---|---|
-| `OK` | Check passes |
-| `NG` | Check fails (No Good) — requires attention |
-| `WARNING` | Condition flagged; may not be a hard failure but warrants review |
-| `INFO` | Informational value only; no pass/fail threshold |
 
 ---
 
 ### column\_failures.csv
 
-Identical format to `column_checks.csv` but filtered to rows where `status` is `NG` or `WARNING`. Useful for quickly identifying deficiencies without scanning the full checks file.
+Identical format to `column_checks.csv`, filtered to `NG` and `WARNING` rows only.
 
 ---
 
 ### P-M Diagrams
 
-Stored in `<outdir>/pm_diagrams/`. Generated for each column in SVG, PDF, and PNG formats.
+Stored in `<outdir>/pm_diagrams/`. Generated for each column in SVG, PDF, and PNG formats, for both x- and y-axis bending.
 
-Each diagram shows:
-- **Nominal curve** (Pn–Mn): using actual material strengths.
-- **Probable curve** (Ppr–Mpr): using expected strengths (*fye = 1.25 fy*, *fce = 1.3 f'c* per ASCE 41).
-- **Design curve** (phi×Pn – phi×Mn): applying ACI phi factors.
-- **Load demand points**: all load cases for the column plotted as markers.
-
-Both x- and y-axis bending diagrams are produced:
-- `{column_id}_PM_x.svg/pdf/png`
-- `{column_id}_PM_y.svg/pdf/png`
-
-To skip diagram generation (faster batch runs), use `--skip-pm`.
+Each diagram shows: nominal curve (Mn), design curve (φMn), probable curve (Mpr), and demand points for all load cases.
 
 ---
 
-### Reports (PDF + LaTeX)
+### Reports (PDF)
 
 Stored in `<outdir>/latex_reports/`. Triggered by `--report-columns` or `--report-all`.
 
-For each requested column, **two files** are written:
+For each requested column, **three files** are written:
 
-| File | Format | Notes |
-|---|---|---|
-| `{column_id}_memoria.pdf` | PDF (ReportLab) | Ready to open immediately — no LaTeX needed |
-| `{column_id}_memoria.tex` | LaTeX source | For users who want to customise or recompile with pdflatex |
+| File | Description |
+|---|---|
+| `{slug}_memoria.pdf` | **Summary report** — input summary, capacities, all checks, P-M diagrams. Ready to open; no LaTeX needed. |
+| `{slug}_memoria.tex` | **LaTeX source** — for users who want to customise or recompile with `pdflatex`. |
+| `{slug}_detailed.pdf` | **Detailed step-by-step report** — every major calculation shown with symbolic equation, substituted values, and result. Intended for learning and independent verification. |
 
-Both files contain the same content:
+#### Summary report contents
 
-1. **Section summary** (side-by-side with a cross-section sketch PNG): dimensions, materials, steel areas, ratios.
-2. **Derived properties**: Ag, Ach, As, ρ, hx, lo.
-3. **Capacity table**: axial, flexural, and shear capacities (Pn0, Mn0, Mpr0, Vc+Vs, φVn).
-4. **Static detailing checks**: ACI longitudinal and transverse checks (load-independent).
-5. **Load-dependent checks per combination**: P-M ratios, shear ratios, SCWB ratios, joint ratios.
-6. **ASCE 41 rotation table** (unless `--hide-rotation-table`): parameters a, b, c, acceptance criteria, and demand/capacity ratios — critical combination shown.
-7. **Connected beam capacity table** (unless `--hide-beam-table`): beam sections and their flexural contributions.
-8. **Joint shear capacity table** (unless `--hide-joint-table`): joint type, alpha factor, capacity, demand.
-9. **Embedded P-M diagrams** (x and y axes).
+1. Input summary + cross-section sketch
+2. Derived properties (Ag, Ach, As, ρ, hx, lo)
+3. Column capacities (axial, flexural, shear)
+4. Static detailing checks (ACI longitudinal and transverse)
+5. Results by load combination
+6. Load-dependent checks — critical combination
+7. ASCE 41 rotation table
+8. Connected beam capacity table
+9. Joint shear capacity table
+10. P-M diagrams (x and y axes)
 
-Failed checks (`NG`) and D/C ratios > 1.0 are highlighted in red; warnings in amber.
+#### Detailed report contents (step-by-step)
 
-**Cross-section sketch:** A PNG showing the concrete outline, confinement hoop, crossties, bar positions, and dimension annotations is auto-generated at `<outdir>/sections/{slug}.png` and embedded in both the PDF and LaTeX reports.
+| Section | Code |
+|---|---|
+| 1. Input parameters + section sketch | — |
+| 2. Cross-section geometry: Ag, Ach, As, ρ, hx, d' | ACI geometry |
+| 3. Axial capacity: Pn0, φPn0 | ACI 22.4.2 |
+| 4. P-M interaction: β₁, strain compatibility, Mpr | ACI 22.2, 21.2 |
+| 5. Shear: Vc, Vs, φVn, Vc = 0 rule, Ve | ACI 22.5, 18.7.6 |
+| 6. Confinement: ℓo, so, smax | ACI 18.7.5 |
+| 7. Min. transverse ratio: kf, kn, expressions (a)(b)(c) | ACI Table 18.7.5.4 |
+| 8. Strong column – weak beam | ACI 18.7.3.2 |
+| 9. Joint shear: Aj, αj, Vn, φVn | ACI 15.4.2.1 |
+| 10. ASCE 41 rotation: a, b, c, θIO/LS/CP, D/C | ASCE 41 Table 10-8 |
+| 11. P-M diagrams | — |
 
-**Optional LaTeX compilation:**
-
-```bash
-cd outputs/latex_reports
-pdflatex COL_150x100_memoria.tex
-# or using latexmk:
-latexmk -pdf COL_150x100_memoria.tex
-```
-
-Required assets for LaTeX compilation (not needed for the ReportLab PDF):
-- `assets/logo_black_horizontal.png` — two directory levels above the `.tex` file (`../../assets/`).
-- `sections/{column_section_id}.png` — one level above the `latex_reports/` directory (`../sections/`).
+Each calculation step shows: symbolic equation → substituted values → result, with the relevant code clause referenced on each line.
 
 ---
 
@@ -563,11 +465,11 @@ Required assets for LaTeX compilation (not needed for the ReportLab PDF):
 
 | Check | Clause | Description |
 |---|---|---|
-| `min_dimension` | Project rule | Minimum column dimension ≥ `min_dim_required_mm` (default 300 mm) |
+| `min_dimension` | Project rule | Minimum column dimension ≥ `min_dim_required_mm` |
 | `rho_longitudinal_min` | ACI 10.6.1 | ρ_long ≥ ρ_min (default 1%) |
 | `rho_longitudinal_max` | ACI 10.6.1 | ρ_long ≤ ρ_max (default 8%) |
 | `n_bars_min_rect` | ACI 18.7.4 | At least 4 bars for rectangular sections |
-| `bars_each_face_min` | Geometry | At least 2 bars per face (required for perimeter model) |
+| `bars_each_face_min` | Geometry | At least 2 bars per face |
 | `free_spacing_long_bars` | ACI 18.7.4.2 | Clear spacing between bars ≥ 40 mm |
 | `core_geometry_positive` | Derived | Confined core dimensions bc, hc must be positive |
 
@@ -577,113 +479,73 @@ Required assets for LaTeX compilation (not needed for the ReportLab PDF):
 
 | Check | Clause | Description |
 |---|---|---|
-| `lo_x_length` / `lo_y_length` | ACI 18.7.5.1 | Confinement length lo ≥ max(h, lclear/6, 450 mm) |
+| `lo_x_length` / `lo_y_length` | ACI 18.7.5.1 | lo ≥ max(h, lclear/6, 450 mm) |
 | `hook_angle_rectilinear` | ACI 18.7.5.2(b) | Rectilinear hoops must have 135-degree hooks |
 | `crosstie_diameter` | ACI 18.7.5.2(c) | Crosstie diameter ≥ hoop diameter |
 | `crosstie_alternate_anchorage` | ACI 18.7.5.2(c) | Consecutive crossties alternated end-for-end |
-| `hx_general_limit` | ACI 18.7.5.2(e) | Maximum spacing between laterally supported bars ≤ 350 mm |
+| `hx_general_limit` | ACI 18.7.5.2(e) | Maximum unsupported bar spacing ≤ 350 mm |
 | `hx_special_limit` | ACI 18.7.5.2(f) | Reduced limit of 200 mm when Pu > 0.3 Ag f'c or f'c > 70 MPa |
-| `all_perimeter_bars_supported` | ACI 18.7.5.2 | Every perimeter bar must have lateral support |
-| `tie_spacing_within_lo` | ACI 18.7.5.3 | Spacing within lo ≤ minimum of (b/4, 6db, so) |
-| `tie_spacing_outside_lo` | ACI 18.7.5.5 | Spacing outside lo ≤ minimum allowed |
-| `rho_s_x_required` / `rho_s_y_required` | ACI Table 18.7.5.4 | Transverse reinforcement ratio ≥ required by equations (a), (b), (c) |
-| `cover_additional_transverse_not_required` | ACI 18.7.5.7 | Concrete cover outside confinement ≤ 100 mm |
-
-For **gravity columns** in SDC D/E/F (ACI 18.14.3.2), a simplified transverse check is applied based on a threshold Pu > 0.35 Po.
+| `tie_spacing_within_lo` | ACI 18.7.5.3 | Spacing within lo ≤ min(b/4, 6db, so) |
+| `tie_spacing_outside_lo` | ACI 18.7.5.5 | Spacing outside lo ≤ min(150, 6db) mm |
+| `rho_s_x_required` / `rho_s_y_required` | ACI Table 18.7.5.4 | Transverse ratio ≥ max of expressions (a), (b), (c) |
 
 ---
 
 ### ACI 318-22: Flexure and Axial Capacity
 
 Capacity is computed using **strain compatibility** with:
-- Whitney rectangular stress block for concrete.
-- Bilinear elastic-perfectly-plastic steel model (εy = fy/Es, Es = 200 GPa).
+- Whitney rectangular stress block for concrete (α₁ = 0.85, β₁ per ACI Table 22.2.2.4.3).
+- Bilinear steel model (εy = fy/Es, Es = 200 GPa).
 - Ultimate concrete strain εcu = 0.003.
-- Phi factor: 0.65 (compression-controlled) to 0.90 (tension-controlled), transitioning linearly.
+- φ factor: 0.65 (compression-controlled) to 0.90 (tension-controlled), linear transition.
 
-The tool generates 180+ points for the full interaction surface and interpolates at the applied Pu to obtain Mn and phi.
+180+ interaction points are generated; capacity at applied Pu is found by interpolation.
 
-For **probable strength**, expected material strengths are used: fye = asce_fye_factor × fy (default 1.25), fce = 1.3 × f'c.
+For **probable strength**: fye = 1.25 × fy, φ = 1.0.
 
 ---
 
 ### ACI 318-22: Seismic Shear
 
-Per ACI 18.7.6, the design seismic shear Ve is taken as:
-
-```
 Ve = (Mpr_top + Mpr_bottom) / lu
-```
 
-where Mpr is the probable flexural capacity at the actual Pu, and lu is the clear height (or unbraced length).
-
-The **Vc = 0 rule** (ACI 18.7.6.2.1) eliminates the concrete contribution to shear when:
-- Ve ≥ 0.5 × (Vc + Vs), **and**
-- Pu < Ag × f'c / 20
-
-The shear demand/capacity ratio is checked as: Ve / (phi × Vn) ≤ 1.0.
+**Vc = 0 rule** (ACI 18.7.6.2.1) applies when Ve ≥ 0.5 × Vu_design **and** Pu < Ag × f'c / 20.
 
 ---
 
 ### ACI 318-22: Strong Column Weak Beam
 
-Per ACI 18.7.3.2, at each joint:
-
-```
-Σ Mnc (columns) ≥ 1.2 × Σ Mnb (beams)
-```
-
-The sum includes contributions from the column above and below the joint (using their respective sections and Pu values). The beam sum is computed from the probable flexural strength of all beams framing into the joint on each side.
+ΣMnc ≥ 1.2 × ΣMnb  (ACI 18.7.3.2)
 
 ---
 
 ### ACI 318-22: Joint Shear
 
-Per ACI 18.8.4, the joint shear capacity is:
+Vn = αj × √f'c × Aj  (ACI 15.4.2.1)
 
-```
-Vn = alpha_j × sqrt(f'c) × Aj
-```
-
-where:
-- **alpha_j** depends on joint confinement: 1.7 (confined on all 4 sides), 1.2 (confined on 3 sides or two opposite sides), 1.0 (otherwise).
-- **Aj** is the effective joint area, with width limited by the column dimension and beam width plus offset.
-
-Joint shear demand is computed from the beam probable moment capacity and the column shear.
+αj = 1.7 (confined on 4 sides) / 1.3 (3 sides or opposite) / 1.0–0.7 (otherwise), per ACI Table 15.4.2.3.
 
 ---
 
 ### ACI 318-22: Gravity Columns (18.14.3)
 
-For columns in `frame_type` other than SMF/IMF/OMF (i.e., gravity frames) in SDC D, E, or F, the code checks whether the column was designed for the gravity load combination that includes the vertical ground motion amplification per ACI 18.14.3.2. This is flagged as a `WARNING` if `gravity_design_actions_checked` is `False` and Pu > 0.35 × Po.
+For gravity-frame columns in SDC D/E/F, a simplified transverse check is applied per ACI 18.14.3.2. Additional requirements are triggered when Pu > 0.35 × Po.
 
 ---
 
 ### ASCE 41: Plastic Rotation Acceptance Criteria
 
-Per ASCE 41 Table 10-8, plastic rotation acceptance criteria for RC columns with conforming transverse reinforcement are computed as functions of:
-
-- **Axial ratio**: P / (Ag × f'c)
-- **Transverse reinforcement ratio**: ρ_t (about x and y)
-- **Shear ratio**: Vye / VColOE (expected shear to column shear capacity)
-- **Splice control**: whether lap splice behavior governs
-
-**Non-splice branch equations:**
+Per ASCE 41 Table 10-8, plastic rotation parameters:
 
 ```
-a = max(0.042 − 0.043 × r_eff + 0.63 × rho_t − 0.023 × v_ratio, 0)
-b = max(0.5 / (5 + (r_eff/0.8) × (f'c/(rho_t × fyte))) − 0.01, a)
-c = max(0.24 − 0.4 × max(axial_ratio, 0.1), 0)
+a = max(0.042 − 0.043·ν_eff + 0.63·ρt − 0.023·v, 0)
+b = max(0.5 / (5 + (ν_eff/0.8)·(f'c/(ρt·fyte))) − 0.01, a)
+c = max(0.24 − 0.4·max(ν, 0.1), 0)
 ```
 
-where r_eff = max(axial_ratio, 0.1).
+Acceptance criteria: θIO = 0.15·a (max 0.005), θLS = 0.5·b, θCP = 0.7·b.
 
-Acceptance limits:
-- **IO (Immediate Occupancy)**: θ_io = 0.5 × a
-- **LS (Life Safety)**: θ_ls = 0.75 × a (interpolated from Table 10-8)
-- **CP (Collapse Prevention)**: θ_cp = a
-
-The plastic rotation demand from the loads CSV (`RotX`, `RotY`) is divided by the appropriate limit for the load case's `damage_state`, giving the ASCE 41 demand/capacity ratio.
+Demand/capacity ratio: |θd| / θcap ≤ 1.0.
 
 ---
 
@@ -691,26 +553,30 @@ The plastic rotation demand from the loads CSV (`RotX`, `RotY`) is divided by th
 
 ```
 rc-column-checker/
-├── main.py                      # CLI entry point; argument parsing, orchestration, result assembly
-├── app.py                       # Streamlit GUI; browser-based alternative to main.py
+├── main.py                      # CLI entry point; orchestration, result assembly
+├── app.py                       # Streamlit GUI
 ├── io_utils.py                  # CSV reading, validation, section/instance merging
-├── geometry_utils.py            # Geometric property calculations (Ag, Ach, As, hx, rho_s)
-├── section_capacity.py          # Strain-compatibility analysis, interaction curves, shear/joint capacity
+├── geometry_utils.py            # Geometric properties (Ag, Ach, As, hx, rho_s)
+├── section_capacity.py          # Strain-compatibility, interaction curves, shear/joint
 ├── aci_longitudinal_checks.py   # ACI longitudinal detailing checks
 ├── aci_transverse_checks.py     # ACI transverse detailing checks
-├── asce41_rotation.py           # ASCE 41 Table 10-8 plastic rotation parameters
-├── pm_diagram.py                # P-M diagram + cross-section sketch generation (matplotlib)
+├── asce41_rotation.py           # ASCE 41 Table 10-8 plastic rotation
+├── pm_diagram.py                # P-M diagram + cross-section sketch (matplotlib)
 ├── reporting.py                 # LaTeX report assembly
-├── pdf_report.py                # ReportLab PDF report builder (no LaTeX required)
+├── pdf_report.py                # Summary PDF report (ReportLab)
+├── pdf_report_detailed.py       # Step-by-step educational PDF report (ReportLab)
+├── constants.py                 # All normative constants with code clause references
 ├── requirements.txt
+├── .python-version              # Pins Python 3.11 for Streamlit Cloud
 ├── sample_column_sections.csv
 ├── sample_beam_sections.csv
 ├── sample_column_beam_prop.csv
 ├── sample_loads.csv
 ├── templates/                   # LaTeX report template
-├── assets/
-│   ├── logo_black_horizontal.png        # Black logo used in LaTeX report headers
-│   └── Logo_horizontal_Torrefuerte.png  # Colour logo used in ReportLab PDF + Streamlit GUI
+└── assets/
+    ├── logo_black_horizontal.png        # Black logo for LaTeX report headers
+    ├── Logo_horizontal_Torrefuerte.png  # Colour logo for PDF reports + Streamlit GUI
+    └── logo_browser.PNG                 # Favicon for the Streamlit web app
 ```
 
 ### Data Flow
@@ -720,38 +586,35 @@ rc-column-checker/
     │
     ▼
 io_utils.read_inputs()
-    ├─ read_column_sections_csv()   ─┐
-    ├─ read_beam_sections_csv()      ├─ assemble_column_properties()
-    ├─ read_column_beam_csv()       ─┘
-    └─ read_loads_csv()
     │
     ▼
 For each column:
-    ├─ compute_geometry()              → Ag, Ach, As, rho_long, hx, rho_s, bar positions
+    ├─ compute_geometry()              → Ag, Ach, As, rho_long, hx, bar positions
     ├─ compute_beam_actions()          → beam flexural capacities per joint face
     ├─ pure_axial_capacity()           → Pn0, phiPn0
-    ├─ pure_flexure_capacity()         → Mn0, Mpr0 at Pu=0
+    ├─ pure_flexure_capacity()         → Mn0, Mpr0 at Pu = 0
     ├─ shear_capacity_base()           → Vc + Vs
-    ├─ joint_capacity_static()         → alpha_j, Aj, Vn_joint
-    ├─ longitudinal_checks()           → static detailing checks (load-independent)
-    ├─ transverse_checks()             → static detailing checks (load-independent)
+    ├─ joint_capacity_static()         → αj, Aj, Vn_joint
+    ├─ longitudinal_checks()           → static detailing checks
+    ├─ transverse_checks()             → static detailing checks
     └─ interaction_points()            → full P-M curve (180+ points)
     │
     └─ For each load case:
         ├─ column_strengths_at_Pu()        → Mn, Mpr, phi at current Pu
-        ├─ probable_shear_for_column()     → Ve (probable seismic shear demand)
-        ├─ shear_capacity_case()           → adjusted phiVn (applies Vc=0 rule)
+        ├─ probable_shear_for_column()     → Ve (probable seismic shear)
+        ├─ shear_capacity_case()           → phiVn with Vc = 0 rule applied
         ├─ strong_column_weak_beam()       → SCWB ratio
         ├─ joint_shear_demand_case()       → joint shear demand
-        ├─ compute_asce41_rotation()       → a, b, c, theta_io/ls/cp, demand ratio
+        ├─ compute_asce41_rotation()       → a, b, c, theta_io/ls/cp, D/C ratio
         ├─ [write to column_results.csv]
         └─ [write to column_checks.csv]
     │
     └─ If reports requested:
-        ├─ export_section_sketch()     → sections/{slug}.png  (cross-section diagram)
-        ├─ export_pm_diagram()         → pm_diagrams/{id}_PM_x/y.svg/.pdf/.png
-        ├─ build_latex_report()        → latex_reports/{slug}_memoria.tex
-        └─ build_pdf_report()          → latex_reports/{slug}_memoria.pdf  (ReportLab)
+        ├─ export_section_sketch()         → sections/{slug}.png
+        ├─ export_pm_diagram()             → pm_diagrams/{id}_PM_x/y.svg/.pdf/.png
+        ├─ build_latex_report()            → latex_reports/{slug}_memoria.tex
+        ├─ build_pdf_report()              → latex_reports/{slug}_memoria.pdf
+        └─ build_detailed_pdf_report()     → latex_reports/{slug}_detailed.pdf
 ```
 
 ---
@@ -760,18 +623,17 @@ For each column:
 
 1. **Section geometry**: Only rectangular perimeter bar layouts are supported. Circular, spiral, or non-uniform bar arrangements are not modelled.
 
-2. **Interaction surface**: The P-M analysis uses a simplified rectangular cross-section (equivalent Whitney stress block). It does not perform fibre-by-fibre integration, so results are approximate for sections with clustered reinforcement or significant cover-to-depth ratios.
+2. **Interaction surface**: The P-M analysis uses the Whitney equivalent rectangular stress block. It does not perform fibre-by-fibre integration, so results are approximate for sections with clustered reinforcement or significant cover-to-depth ratios.
 
 3. **Biaxial interaction**: x- and y-directions are checked independently. No Bresler-type biaxial interaction check is currently applied.
 
-4. **Beam flexure**: Beam capacities are computed using simplified rectangular beam theory (tension-controlled, no T-section slab contribution). These are adequate for joint and SCWB screening but may differ from a full section analysis.
+4. **Beam flexure**: Beam capacities use simplified rectangular beam theory (tension-controlled, no T-section slab contribution). Adequate for joint and SCWB screening; may differ from a full section analysis.
 
 5. **Adjacent column references**:
    - `same` — reuses the current column section.
    - `none` — zero contribution (column terminates at the joint).
    - Any other string — must match a `column_section_id` in the column sections CSV.
 
-
-6. **Report outputs**: Two report files are always written together: `{slug}_memoria.pdf` (ReportLab — open immediately, no LaTeX needed) and `{slug}_memoria.tex` (LaTeX source for customisation). The PDF embeds the cross-section sketch and P-M diagrams from the same run. The `.tex` file also references these images; to compile it with `pdflatex` keep `assets/logo_black_horizontal.png` accessible as `../../assets/` and section images at `../sections/` relative to the `latex_reports/` directory.
+6. **Report outputs**: Three files are written per column when reports are requested: `*_memoria.pdf` (summary, ReportLab), `*_memoria.tex` (LaTeX source for customisation), and `*_detailed.pdf` (step-by-step educational report, ReportLab). The PDFs embed the cross-section sketch and P-M diagrams from the same run. To compile the `.tex` file with `pdflatex`, keep `assets/logo_black_horizontal.png` accessible as `../../assets/` and section images at `../sections/` relative to the `latex_reports/` directory.
 
 7. **Version history**: beta.
