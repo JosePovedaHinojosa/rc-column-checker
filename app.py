@@ -37,7 +37,7 @@ FACE_LABELS = {
 # Everything outside this set is a widget key and gets wiped on project load.
 _DATA_KEYS: frozenset[str] = frozenset({
     'column_sections', 'beam_sections', 'assemblies',
-    'report_requested', 'project_name', 'report_columns',
+    'report_requested', 'report_detailed_requested', 'project_name', 'report_columns',
     '_results', '_checks', '_failures', '_stdout',
     '_csv_results', '_csv_checks', '_csv_failures',
     '_tex_content', '_tex_filename', '_pdf_bytes', '_pdf_compiled',
@@ -202,7 +202,8 @@ def _init_state() -> None:
         first_sec = st.session_state['column_sections'][0]['section_id']
         st.session_state['assemblies'] = [_default_assembly('COL_1', first_sec)]
 
-    for key, val in {'report_requested': False, 'project_name': '', 'report_columns': []}.items():
+    for key, val in {'report_requested': False, 'report_detailed_requested': False,
+                     'project_name': '', 'report_columns': []}.items():
         if key not in st.session_state:
             st.session_state[key] = val
 
@@ -1129,30 +1130,27 @@ def tab_results() -> None:
     st.subheader('Run & Results')
 
     with st.expander('📄 Report options', expanded=False):
-        st.session_state['report_requested'] = st.checkbox(
-            'Generate PDF report',
+        _ro1, _ro2 = st.columns(2)
+        st.session_state['report_requested'] = _ro1.checkbox(
+            'Generate summary report',
             value=st.session_state.get('report_requested', False),
-            help=(
-                'When checked, a PDF report and P-M diagrams are generated for the selected '
-                'column instances. The PDF is built directly with Python — no LaTeX required.'
-            ),
+            help='Concise report: input summary, capacities, checks, P-M diagrams.',
         )
-        if st.session_state['report_requested']:
+        st.session_state['report_detailed_requested'] = _ro2.checkbox(
+            'Generate detailed report',
+            value=st.session_state.get('report_detailed_requested', False),
+            help='Step-by-step calculations with equations — for learning and verification.',
+        )
+        _any_report = st.session_state['report_requested'] or st.session_state['report_detailed_requested']
+        if _any_report:
             all_col_ids = [asm['col_id'] for asm in st.session_state['assemblies']]
-            # Keep only IDs that still exist (assemblies may have been renamed/removed)
             stored = [c for c in st.session_state.get('report_columns', []) if c in all_col_ids]
-            # Default to all when nothing is stored yet
             default_sel = stored if stored else all_col_ids
             st.session_state['report_columns'] = st.multiselect(
                 'Generate report for',
                 options=all_col_ids,
                 default=default_sel,
-                help=(
-                    'Select which column instances should have a PDF report. '
-                    'All selected → `--report-all`; '
-                    'subset → `--report-columns COL1,COL2`. '
-                    'Deselect all to skip reports (equivalent to unchecking the checkbox).'
-                ),
+                help='Select column instances. Applies to both report types.',
             )
         st.session_state['project_name'] = st.text_input(
             'Project name (appears in report header)',
@@ -1301,8 +1299,9 @@ def tab_results() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _run_pipeline() -> None:
-    generate_report = bool(st.session_state.get('report_requested', False))
-    project_name    = str(st.session_state.get('project_name', '')).strip()
+    generate_report          = bool(st.session_state.get('report_requested', False))
+    generate_detailed_report = bool(st.session_state.get('report_detailed_requested', False))
+    project_name             = str(st.session_state.get('project_name', '')).strip()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
@@ -1344,16 +1343,16 @@ def _run_pipeline() -> None:
             '--loads',           str(loads_f),
             '--outdir',          str(outdir),
         ]
+        selected_cols = st.session_state.get('report_columns', [])
+        all_col_ids   = [asm['col_id'] for asm in st.session_state['assemblies']]
+        _all_selected = not selected_cols or set(selected_cols) >= set(all_col_ids)
         if generate_report:
-            selected_cols = st.session_state.get('report_columns', [])
-            all_col_ids   = [asm['col_id'] for asm in st.session_state['assemblies']]
-            if not selected_cols or set(selected_cols) >= set(all_col_ids):
-                cmd += ['--report-all']
-            else:
-                cmd += ['--report-columns', ','.join(selected_cols)]
-            if project_name:
-                cmd += ['--pry-name', project_name]
-        else:
+            cmd += ['--report-all'] if _all_selected else ['--report-columns', ','.join(selected_cols)]
+        if generate_detailed_report:
+            cmd += ['--detailed-report-all'] if _all_selected else ['--detailed-report-columns', ','.join(selected_cols)]
+        if (generate_report or generate_detailed_report) and project_name:
+            cmd += ['--pry-name', project_name]
+        if not generate_report and not generate_detailed_report:
             cmd += ['--skip-pm']
 
         proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(ROOT))

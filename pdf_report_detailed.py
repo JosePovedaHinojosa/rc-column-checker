@@ -648,13 +648,15 @@ def _s6_confinement(row: dict, geom: dict, tr_meta: dict) -> list:
     return story
 
 
-def _s7_rhos(row: dict, geom: dict, tr_meta: dict) -> list:
+def _s7_rhos(row: dict, geom: dict, tr_meta: dict, cases: list) -> list:
     story = _section_header('7  |  Minimum Transverse Reinforcement  —  ACI Table 18.7.5.4')
     fc   = float(row['fc_MPa'])
     fyt  = float(row['fy_trans_MPa'])
     Ag   = float(geom['Ag_mm2'])
     Ach  = float(geom['Ach_mm2'])
-    Pu_N = float(row['Pu_kN']) * 1e3
+    # prop_row has no Pu — use max compression from load cases
+    _rep_pu = max((float(c['row']['Pu_kN']) for c in cases), default=0.0) if cases else 0.0
+    Pu_N = max(_rep_pu, 0.0) * 1e3
     kf   = float(tr_meta['kf'])
     kn   = float(tr_meta['kn'])
     ns   = int(geom['n_lateral_supported_bars'])
@@ -1077,7 +1079,7 @@ def build_detailed_pdf_report(ctx: dict) -> bytes:
     story += _s4_pm(row, geom, cases, flexure0)
     story += _s5_shear(row, geom, shear_base, cases)
     story += _s6_confinement(row, geom, tr_meta)
-    story += _s7_rhos(row, geom, tr_meta)
+    story += _s7_rhos(row, geom, tr_meta, cases)
     story += _s8_scwb(row, cases)
     story += _s9_joint(row, joint_static)
     story += _s10_asce41(row, geom, cases)

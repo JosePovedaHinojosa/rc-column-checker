@@ -115,8 +115,10 @@ def main():
     parser.add_argument('--loads', required=True, help='Path to loads CSV')
     parser.add_argument('--outdir', default='outputs', help='Output directory')
     parser.add_argument('--skip-pm', action='store_true', help='Skip P-M plot export')
-    parser.add_argument('--report-columns', default='', help='Comma-separated column_id values to generate LaTeX reports')
-    parser.add_argument('--report-all', action='store_true', help='Generate LaTeX reports for all columns')
+    parser.add_argument('--report-columns', default='', help='Comma-separated column_id values to generate summary reports')
+    parser.add_argument('--report-all', action='store_true', help='Generate summary reports for all columns')
+    parser.add_argument('--detailed-report-columns', default='', help='Comma-separated column_id values to generate detailed step-by-step reports')
+    parser.add_argument('--detailed-report-all', action='store_true', help='Generate detailed step-by-step reports for all columns')
     parser.add_argument('--pry-name', default='', help='Project name for report header')
     parser.add_argument('--hide-rotation-table', action='store_true', help='Hide the ASCE 41 rotation table in LaTeX reports')
     parser.add_argument('--hide-beam-table', action='store_true', help='Hide the connected beam capacities table in LaTeX reports')
@@ -131,7 +133,8 @@ def main():
     outdir = Path(args.outdir)
     pm_dir = outdir / 'pm_diagrams'
     report_dir = outdir / 'latex_reports'
-    requested_reports = set(grouped.keys()) if args.report_all else parse_report_columns(args.report_columns)
+    requested_reports  = set(grouped.keys()) if args.report_all  else parse_report_columns(args.report_columns)
+    requested_detailed = set(grouped.keys()) if args.detailed_report_all else parse_report_columns(args.detailed_report_columns)
     other_col_cache = {}
 
     results_rows = []
@@ -353,32 +356,40 @@ def main():
     if requested_reports and not args.skip_pm:
         print(f'Wrote P-M diagrams under {pm_dir}')
 
-    if requested_reports:
+    any_reports = requested_reports or requested_detailed
+    if any_reports:
         report_dir.mkdir(parents=True, exist_ok=True)
-        n_reports = 0
+        n_summary = n_detailed = 0
+        all_requested = requested_reports | requested_detailed
         for ctx in report_contexts:
-            if ctx['column_id'] not in requested_reports:
+            if ctx['column_id'] not in all_requested:
                 continue
             slug = slugify(str(ctx['column_id']))
-            # LaTeX report (kept for CLI users who have pdflatex)
-            tex = build_latex_report(ctx)
-            (report_dir / f'{slug}_memoria.tex').write_text(tex, encoding='utf-8')
-            # PDF report via ReportLab (no LaTeX required)
-            try:
-                pdf_bytes = build_pdf_report(ctx)
-                (report_dir / f'{slug}_memoria.pdf').write_bytes(pdf_bytes)
-            except Exception as exc:
-                print(f'Warning: PDF generation failed for {ctx["column_id"]}: {exc}')
-            # Detailed step-by-step educational report
-            try:
-                pdf_det = build_detailed_pdf_report(ctx)
-                (report_dir / f'{slug}_detailed.pdf').write_bytes(pdf_det)
-            except Exception as exc:
-                print(f'Warning: Detailed PDF generation failed for {ctx["column_id"]}: {exc}')
-            n_reports += 1
-        print(f'Wrote {n_reports} report(s) (LaTeX + PDF) under {report_dir}')
+            if ctx['column_id'] in requested_reports:
+                # LaTeX source (for CLI users with pdflatex)
+                tex = build_latex_report(ctx)
+                (report_dir / f'{slug}_memoria.tex').write_text(tex, encoding='utf-8')
+                # Summary PDF (ReportLab)
+                try:
+                    pdf_bytes = build_pdf_report(ctx)
+                    (report_dir / f'{slug}_memoria.pdf').write_bytes(pdf_bytes)
+                    n_summary += 1
+                except Exception as exc:
+                    print(f'Warning: Summary PDF failed for {ctx["column_id"]}: {exc}')
+            if ctx['column_id'] in requested_detailed:
+                # Detailed step-by-step educational PDF
+                try:
+                    pdf_det = build_detailed_pdf_report(ctx)
+                    (report_dir / f'{slug}_detailed.pdf').write_bytes(pdf_det)
+                    n_detailed += 1
+                except Exception as exc:
+                    print(f'Warning: Detailed PDF failed for {ctx["column_id"]}: {exc}')
+        parts = []
+        if n_summary:  parts.append(f'{n_summary} summary')
+        if n_detailed: parts.append(f'{n_detailed} detailed')
+        print(f'Wrote {", ".join(parts)} report(s) under {report_dir}')
     else:
-        print('No reports requested; P-M diagrams were not generated.')
+        print('No reports requested.')
 
 
 if __name__ == '__main__':
