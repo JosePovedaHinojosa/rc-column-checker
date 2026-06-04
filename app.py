@@ -522,11 +522,28 @@ def tab_section() -> None:
     st.markdown(
         """
         <style>
-        /* Keep the section sketch visible while scrolling through the form */
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-child {
+        /*
+         * Sticky section sketch: works in Streamlit 1.58+
+         *
+         * Two changes needed:
+         * 1. Correct testid — Streamlit 1.30+ uses "stColumn", not "column"
+         * 2. The expander container has overflow:hidden by default, which
+         *    traps position:sticky inside it.  Override to visible so the
+         *    sticky propagates to the page-level scroll container.
+         */
+        [data-testid="stExpanderDetails"],
+        [data-testid="stExpanderDetails"] > div[data-testid="stVerticalBlock"] {
+            overflow: visible !important;
+        }
+
+        /* Sticky column — covers both old ("column") and new ("stColumn") testids */
+        [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child,
+        [data-testid="stHorizontalBlock"] > [data-testid="column"]:last-child {
+            position: -webkit-sticky;
             position: sticky;
             top: 3.5rem;
             align-self: flex-start;
+            z-index: 10;
         }
         </style>
         """,
