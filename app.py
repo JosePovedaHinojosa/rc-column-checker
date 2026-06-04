@@ -914,123 +914,353 @@ def tab_beams() -> None:
 # Tab 3 – Assembly (library of column instances)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _draw_asm_identity_diagram(asm: dict) -> plt.Figure:
+    """Elevation sketch: this column + adjacent above/below + joints + clear-height dim."""
+    clear_h = max(float(asm.get('clear_height_mm', 3000)), 500.0)
+    above   = str(asm.get('top_other_col_id',    'same') or 'same')
+    below   = str(asm.get('bottom_other_col_id', 'same') or 'same')
+    jt      = bool(asm.get('joint_top',    True))
+    jb      = bool(asm.get('joint_bottom', True))
+    col_id  = str(asm.get('col_id', ''))
+    sec_id  = str(asm.get('col_section_id', ''))
+
+    adj_h = clear_h * 0.28          # height shown for adjacent column stubs
+    tot_h = clear_h + 2 * adj_h     # full figure height in model units
+    cw    = clear_h * 0.18          # column width (proportional)
+    cx    = 0.0                     # column left edge (centred at cw/2)
+
+    fig_h = max(3.2, min(6.0, tot_h / clear_h * 3.2))
+    fig, ax = plt.subplots(figsize=(3.0, fig_h))
+    ax.set_aspect('equal', adjustable='datalim')
+    ax.axis('off')
+
+    y0, y1 = 0.0, clear_h           # bottom and top of this column
+    _GRY  = '#d4c8b3'
+    _EDGE = '#444444'
+    _ADJ  = '#e8e8e8'
+    _JNT  = '#1a1a8c'
+    _DIM  = '#555555'
+
+    # — adjacent column above ————————————————————
+    if above != 'none':
+        ax.add_patch(mpatches.Rectangle(
+            (cx, y1), cw, adj_h,
+            facecolor=_ADJ, edgecolor=_EDGE, linestyle='--', linewidth=0.9,
+            hatch='////', zorder=1))
+        ax.text(cx + cw / 2, y1 + adj_h * 0.5, above,
+                ha='center', va='center', fontsize=5.5, color='#666666', style='italic')
+        ax.text(cx + cw / 2, y1 + adj_h + clear_h * 0.04,
+                'col above', ha='center', va='bottom', fontsize=5.5, color='#888888')
+
+    # — this column ——————————————————————————————
+    ax.add_patch(mpatches.Rectangle(
+        (cx, y0), cw, clear_h,
+        facecolor=_GRY, edgecolor=_EDGE, linewidth=1.5, zorder=2))
+    ax.text(cx + cw / 2, (y0 + y1) / 2 + clear_h * 0.06,
+            col_id, ha='center', va='center', fontsize=6.5,
+            fontweight='bold', color='#1a1a1a')
+    ax.text(cx + cw / 2, (y0 + y1) / 2 - clear_h * 0.06,
+            sec_id, ha='center', va='center', fontsize=5.5, color='#555555')
+
+    # — adjacent column below ————————————————————
+    if below != 'none':
+        ax.add_patch(mpatches.Rectangle(
+            (cx, y0 - adj_h), cw, adj_h,
+            facecolor=_ADJ, edgecolor=_EDGE, linestyle='--', linewidth=0.9,
+            hatch='////', zorder=1))
+        ax.text(cx + cw / 2, y0 - adj_h * 0.5, below,
+                ha='center', va='center', fontsize=5.5, color='#666666', style='italic')
+        ax.text(cx + cw / 2, y0 - adj_h - clear_h * 0.04,
+                'col below', ha='center', va='top', fontsize=5.5, color='#888888')
+
+    # — joints ———————————————————————————————————
+    r = clear_h * 0.045
+    for (yj, filled, label) in [(y1, jt, 'top'), (y0, jb, 'bot')]:
+        ax.add_patch(mpatches.Circle(
+            (cx + cw / 2, yj), r,
+            facecolor=_JNT if filled else 'white',
+            edgecolor=_JNT, linewidth=1.5, zorder=5))
+        ax.text(cx + cw + clear_h * 0.06, yj,
+                f'joint {label}' + (' ✓' if filled else ' —'),
+                ha='left', va='center', fontsize=5.5,
+                color=_JNT if filled else '#aaaaaa')
+
+    # — clear-height dimension ———————————————————
+    dx = cx - clear_h * 0.12
+    ax.annotate('', xy=(dx, y1), xytext=(dx, y0),
+                arrowprops=dict(arrowstyle='<->', color=_DIM, lw=0.8),
+                annotation_clip=False)
+    ax.text(dx - clear_h * 0.04, (y0 + y1) / 2,
+            f'ℓclear\n{clear_h:.0f} mm',
+            ha='right', va='center', fontsize=5.5,
+            color=_DIM, rotation=90, multialignment='center')
+
+    pad = clear_h * 0.15
+    ax.set_xlim(dx - clear_h * 0.22, cx + cw + clear_h * 0.32)
+    ax.set_ylim(y0 - adj_h - pad, y1 + adj_h + pad)
+    fig.tight_layout(pad=0.1)
+    return fig
+
+
+def _draw_asm_beams_diagram(asm: dict) -> plt.Figure:
+    """
+    Axonometric column sketch showing all 8 beam slots.
+    X-beams go left/right; Y-beams go at 35° (depth perspective).
+    Active = solid coloured; none = light dashed.
+    """
+    clear_h = max(float(asm.get('clear_height_mm', 3000)), 500.0)
+    cw    = clear_h * 0.18
+    cx    = 0.0
+    y0, y1 = 0.0, clear_h
+    BL    = clear_h * 0.55          # beam stub length
+    _GRY  = '#d4c8b3'
+    _EDGE = '#444444'
+    _JNT  = '#1a1a8c'
+
+    # beam face → (joint_y, direction, side_sign, label_anchor)
+    # direction: 'x' = horizontal, 'y' = 35° perspective
+    FACE_CFG = {
+        'beam_top_x':    (y1, 'x'),
+        'beam_bottom_x': (y0, 'x'),
+        'beam_top_y':    (y1, 'y'),
+        'beam_bottom_y': (y0, 'y'),
+    }
+    # colours by face
+    FACE_COL = {
+        'beam_top_x':    '#c04040',
+        'beam_bottom_x': '#2060c0',
+        'beam_top_y':    '#20a060',
+        'beam_bottom_y': '#d07020',
+    }
+    import math
+    ang = math.radians(35)
+    dx_y = math.cos(ang)    # x-component of 'y' direction
+    dy_y = math.sin(ang)    # z-component of 'y' direction
+
+    fig, ax = plt.subplots(figsize=(3.2, max(3.2, min(5.5, clear_h / 700 * 3.5))))
+    ax.set_aspect('equal', adjustable='datalim')
+    ax.axis('off')
+
+    # column body
+    ax.add_patch(mpatches.Rectangle(
+        (cx, y0), cw, clear_h,
+        facecolor=_GRY, edgecolor=_EDGE, linewidth=1.5, zorder=3))
+
+    # joints
+    r = clear_h * 0.045
+    for yj in (y0, y1):
+        ax.add_patch(mpatches.Circle(
+            (cx + cw / 2, yj), r,
+            facecolor=_JNT, edgecolor=_JNT, linewidth=1.2, zorder=5))
+
+    # axis arrows (legend)
+    orig_x = cx + cw + clear_h * 0.04
+    orig_y = y0 - clear_h * 0.22
+    arl    = clear_h * 0.12
+    ax.annotate('', xy=(orig_x + arl, orig_y), xytext=(orig_x, orig_y),
+                arrowprops=dict(arrowstyle='->', color='#888', lw=0.7))
+    ax.text(orig_x + arl + clear_h * 0.02, orig_y, 'x', ha='left', va='center',
+            fontsize=5.5, color='#888')
+    ax.annotate('', xy=(orig_x + arl * dx_y, orig_y + arl * dy_y),
+                xytext=(orig_x, orig_y),
+                arrowprops=dict(arrowstyle='->', color='#888', lw=0.7))
+    ax.text(orig_x + arl * dx_y + clear_h * 0.02, orig_y + arl * dy_y,
+            'y', ha='left', va='bottom', fontsize=5.5, color='#888')
+
+    # draw beams
+    for face, (yj, dirn) in FACE_CFG.items():
+        col = FACE_COL[face]
+        bf  = asm.get('beam_faces', {})
+        mid_x = cx + cw / 2
+        mid_y = yj
+        # two sides: side1 = positive direction, side2 = negative direction
+        side_sign = {'side1': +1, 'side2': -1}
+        for side, sgn in side_sign.items():
+            k    = f'{face}_{side}'
+            bfd  = bf.get(k, {})
+            active = bfd.get('section_id', 'none') not in ('none', '', None)
+            sec_lbl = bfd.get('section_id', 'none') if active else 'none'
+            span    = float(bfd.get('ln_mm', 0)) if active else 0.0
+
+            if dirn == 'x':
+                tip_x = mid_x + sgn * BL
+                tip_y = mid_y
+                lbl_x = mid_x + sgn * (BL + clear_h * 0.04)
+                lbl_y = mid_y
+                lbl_ha = 'left' if sgn > 0 else 'right'
+                lbl_va = 'center'
+            else:  # 'y'
+                tip_x = mid_x + sgn * dx_y * BL
+                tip_y = mid_y + sgn * dy_y * BL
+                lbl_x = mid_x + sgn * dx_y * (BL + clear_h * 0.04)
+                lbl_y = mid_y + sgn * dy_y * (BL + clear_h * 0.04)
+                lbl_ha = 'left' if sgn > 0 else 'right'
+                lbl_va = 'bottom' if sgn > 0 else 'top'
+
+            if active:
+                ax.plot([mid_x, tip_x], [mid_y, tip_y],
+                        color=col, lw=2.2, solid_capstyle='round', zorder=2)
+                ax.plot(tip_x, tip_y, 's', color=col, markersize=4, zorder=4)
+                span_str = f'{span/1000:.2f}m' if span > 0 else ''
+                ax.text(lbl_x, lbl_y,
+                        f'{sec_lbl}\n{span_str}' if span_str else sec_lbl,
+                        ha=lbl_ha, va=lbl_va, fontsize=5, color=col,
+                        multialignment=lbl_ha)
+            else:
+                ax.plot([mid_x, tip_x], [mid_y, tip_y],
+                        color='#cccccc', lw=1.0, linestyle='--', zorder=1)
+
+    # compact legend
+    handles = []
+    labels  = []
+    for face, col in FACE_COL.items():
+        short = face.replace('beam_', '').replace('_', ' ')
+        handles.append(plt.Line2D([0], [0], color=col, lw=2))
+        labels.append(short)
+    ax.legend(handles, labels, fontsize=5, loc='upper left',
+              framealpha=0.7, ncols=2, handlelength=1.2)
+
+    pad = clear_h * 0.18
+    ax.set_xlim(cx - BL * dx_y - pad,  cx + cw + BL * dx_y + pad)
+    ax.set_ylim(y0 - BL * dy_y - pad,  y1 + BL * dy_y + pad)
+    fig.tight_layout(pad=0.1)
+    return fig
+
 def _render_asm_identity(asm: dict, i: int, sec_ids: list[str]) -> None:
     adj_opts = sec_ids + ['same', 'none']
 
-    c1, c2, c3 = st.columns(3)
-    asm['col_id'] = c1.text_input(
-        'Column ID (instance)', value=asm['col_id'], key=f'asm_{i}_col_id',
-        help='Unique identifier for this column instance. Used in the Loads CSV to link demands.',
-    )
-    cur_sec = asm.get('col_section_id', sec_ids[0] if sec_ids else '')
-    if cur_sec not in sec_ids:
-        cur_sec = sec_ids[0] if sec_ids else ''
-    asm['col_section_id'] = c2.selectbox(
-        'Column section', sec_ids,
-        index=sec_ids.index(cur_sec) if cur_sec in sec_ids else 0,
-        key=f'asm_{i}_sec_sel',
-        help='Cross-section assigned to this instance. Defined in the Column Sections tab.',
-    )
-    asm['story'] = c3.text_input(
-        'Story / Level', value=asm['story'], key=f'asm_{i}_story',
-        help='Informational label. Not used in calculations.',
-    )
+    _col_form_id, _col_diag_id = st.columns([3, 1])
 
-    c4, c5, c6 = st.columns(3)
-    frame_opts = ['SMF', 'IMF', 'OMF', 'Gravity']
-    ft_idx = frame_opts.index(asm['frame_type']) if asm['frame_type'] in frame_opts else 0
-    asm['frame_type'] = c4.selectbox(
-        'Frame type', frame_opts, index=ft_idx, key=f'asm_{i}_ftype',
-        help=(
-            '**ACI 18 / ASCE 7** — Special Moment Frame (SMF), Intermediate (IMF), '
-            'Ordinary (OMF), or Gravity. Determines which Chapter 18 checks apply.'
-        ),
-    )
-    asm['clear_height_mm'] = c5.number_input(
-        'Clear height [mm]', value=float(asm['clear_height_mm']),
-        min_value=500.0, step=100.0, key=f'asm_{i}_height',
-        help='**ACI 18.7.5.1** — Clear height between beams/slabs. lo = max(h, ℓclear/6, 450 mm).',
-    )
+    with _col_diag_id:
+        st.caption('Geometry diagram')
+        _fig_id = _draw_asm_identity_diagram(asm)
+        st.pyplot(_fig_id, use_container_width=True)
+        plt.close(_fig_id)
 
-    top_val = asm.get('top_other_col_id', 'same')
-    if top_val not in adj_opts:
-        top_val = 'same'
-    asm['top_other_col_id'] = c6.selectbox(
-        'Adjacent column above', adj_opts,
-        index=adj_opts.index(top_val), key=f'asm_{i}_top_sel',
-        help=(
-            '**ACI 18.7.3.2 (SCWB)** — Section of column above this joint. '
-            '"same" = this section; "none" = no column above.'
-        ),
-    )
+    with _col_form_id:
+        c1, c2, c3 = st.columns(3)
+        asm['col_id'] = c1.text_input(
+            'Column ID (instance)', value=asm['col_id'], key=f'asm_{i}_col_id',
+            help='Unique identifier for this column instance. Used in the Loads CSV to link demands.',
+        )
+        cur_sec = asm.get('col_section_id', sec_ids[0] if sec_ids else '')
+        if cur_sec not in sec_ids:
+            cur_sec = sec_ids[0] if sec_ids else ''
+        asm['col_section_id'] = c2.selectbox(
+            'Column section', sec_ids,
+            index=sec_ids.index(cur_sec) if cur_sec in sec_ids else 0,
+            key=f'asm_{i}_sec_sel',
+            help='Cross-section assigned to this instance. Defined in the Column Sections tab.',
+        )
+        asm['story'] = c3.text_input(
+            'Story / Level', value=asm['story'], key=f'asm_{i}_story',
+            help='Informational label. Not used in calculations.',
+        )
 
-    c7, c8, c9, c10 = st.columns(4)
-    bot_val = asm.get('bottom_other_col_id', 'same')
-    if bot_val not in adj_opts:
-        bot_val = 'same'
-    asm['bottom_other_col_id'] = c7.selectbox(
-        'Adjacent column below', adj_opts,
-        index=adj_opts.index(bot_val), key=f'asm_{i}_bot_sel',
-        help='"same" = this section; "none" = base column.',
-    )
-    asm['joint_top'] = c8.checkbox(
-        'Joint at top', value=bool(asm['joint_top']), key=f'asm_{i}_jt',
-        help='**ACI 15.5.2 / 18.8** — True if a beam-column joint exists at top.',
-    )
-    asm['joint_bottom'] = c9.checkbox(
-        'Joint at bottom', value=bool(asm['joint_bottom']), key=f'asm_{i}_jb',
-        help='True if a joint exists at bottom. False for base columns.',
-    )
-    asm['yielding_region_expected'] = c10.checkbox(
-        'Yielding region', value=bool(asm['yielding_region_expected']), key=f'asm_{i}_yield',
-        help='**ACI 18.7.5** — True: full confinement at ends required.',
-    )
+        c4, c5, c6 = st.columns(3)
+        frame_opts = ['SMF', 'IMF', 'OMF', 'Gravity']
+        ft_idx = frame_opts.index(asm['frame_type']) if asm['frame_type'] in frame_opts else 0
+        asm['frame_type'] = c4.selectbox(
+            'Frame type', frame_opts, index=ft_idx, key=f'asm_{i}_ftype',
+            help=(
+                '**ACI 18 / ASCE 7** — Special Moment Frame (SMF), Intermediate (IMF), '
+                'Ordinary (OMF), or Gravity. Determines which Chapter 18 checks apply.'
+            ),
+        )
+        asm['clear_height_mm'] = c5.number_input(
+            'Clear height [mm]', value=float(asm['clear_height_mm']),
+            min_value=500.0, step=100.0, key=f'asm_{i}_height',
+            help='**ACI 18.7.5.1** — Clear height between beams/slabs. lo = max(h, ℓclear/6, 450 mm).',
+        )
+
+        top_val = asm.get('top_other_col_id', 'same')
+        if top_val not in adj_opts:
+            top_val = 'same'
+        asm['top_other_col_id'] = c6.selectbox(
+            'Adjacent column above', adj_opts,
+            index=adj_opts.index(top_val), key=f'asm_{i}_top_sel',
+            help=(
+                '**ACI 18.7.3.2 (SCWB)** — Section of column above this joint. '
+                '"same" = this section; "none" = no column above.'
+            ),
+        )
+
+        c7, c8, c9, c10 = st.columns(4)
+        bot_val = asm.get('bottom_other_col_id', 'same')
+        if bot_val not in adj_opts:
+            bot_val = 'same'
+        asm['bottom_other_col_id'] = c7.selectbox(
+            'Adjacent column below', adj_opts,
+            index=adj_opts.index(bot_val), key=f'asm_{i}_bot_sel',
+            help='"same" = this section; "none" = base column.',
+        )
+        asm['joint_top'] = c8.checkbox(
+            'Joint at top', value=bool(asm['joint_top']), key=f'asm_{i}_jt',
+            help='**ACI 15.5.2 / 18.8** — True if a beam-column joint exists at top.',
+        )
+        asm['joint_bottom'] = c9.checkbox(
+            'Joint at bottom', value=bool(asm['joint_bottom']), key=f'asm_{i}_jb',
+            help='True if a joint exists at bottom. False for base columns.',
+        )
+        asm['yielding_region_expected'] = c10.checkbox(
+            'Yielding region', value=bool(asm['yielding_region_expected']), key=f'asm_{i}_yield',
+            help='**ACI 18.7.5** — True: full confinement at ends required.',
+        )
 
 
 def _render_asm_beams(asm: dict, i: int) -> None:
     beam_ids = [b['beam_section_id'] for b in st.session_state['beam_sections']] + ['none']
-    for face in BEAM_FACES:
-        st.markdown(f'**{FACE_LABELS[face]}**')
-        for side in ('side1', 'side2'):
-            k = f'{face}_{side}'
-            bfd = asm['beam_faces'][k]
-            side_label = 'Side 1 (left / near)' if side == 'side1' else 'Side 2 (right / far)'
-            cols = st.columns([2, 2, 2, 2, 2, 1])
 
-            cur_id = bfd.get('section_id', 'none')
-            if cur_id not in beam_ids:
-                cur_id = 'none'
-            bfd['section_id'] = cols[0].selectbox(
-                side_label, beam_ids, index=beam_ids.index(cur_id),
-                key=f'asm_{i}_bf_{k}_sec',
-                help='Beam section from the library. "none" = no beam on this side.',
-            )
-            bfd['ln_mm'] = cols[1].number_input(
-                'ℓn [mm]', value=float(bfd['ln_mm']), min_value=0.0, step=100.0,
-                key=f'asm_{i}_bf_{k}_ln',
-                help='**ACI 18.6.5.1** — Clear span. Ve = (Mpr⁺+Mpr⁻)/ℓn + wu·ℓn/2.',
-            )
-            bfd['wu_kN_per_m'] = cols[2].number_input(
-                'wu [kN/m]', value=float(bfd['wu_kN_per_m']), min_value=0.0, step=1.0,
-                key=f'asm_{i}_bf_{k}_wu',
-                help='Factored gravity load per unit length. Typical: 15–50 kN/m.',
-            )
-            bfd['x_mm'] = cols[3].number_input(
-                'x [mm]', value=float(bfd['x_mm']), min_value=0.0, step=25.0,
-                key=f'asm_{i}_bf_{k}_x',
-                help='**ACI R15.5.2.2** — Offset from column face to beam centroid. Aj = b_col×(h_col+x).',
-            )
-            bfd['ext_mm'] = cols[4].number_input(
-                'ext [mm]', value=float(bfd['ext_mm']), min_value=0.0, step=25.0,
-                key=f'asm_{i}_bf_{k}_ext',
-                help='**ACI 15.5.2.5(c)** — Beam extension beyond far joint face. ≥ h_beam required.',
-            )
-            bfd['continuous'] = cols[5].checkbox(
-                'Cont.', value=bool(bfd['continuous']),
-                key=f'asm_{i}_bf_{k}_cont',
-                help='**ACI 18.6.3** — True if bars are continuous through joint.',
-            )
-        st.divider()
+    _col_form_bm, _col_diag_bm = st.columns([3, 1])
+    with _col_diag_bm:
+        st.caption('Connection diagram')
+        _fig_bm = _draw_asm_beams_diagram(asm)
+        st.pyplot(_fig_bm, use_container_width=True)
+        plt.close(_fig_bm)
+
+    with _col_form_bm:
+        for face in BEAM_FACES:
+            st.markdown(f'**{FACE_LABELS[face]}**')
+            for side in ('side1', 'side2'):
+                k = f'{face}_{side}'
+                bfd = asm['beam_faces'][k]
+                side_label = 'Side 1 (left / near)' if side == 'side1' else 'Side 2 (right / far)'
+                cols = st.columns([2, 2, 2, 2, 2, 1])
+
+                cur_id = bfd.get('section_id', 'none')
+                if cur_id not in beam_ids:
+                    cur_id = 'none'
+                bfd['section_id'] = cols[0].selectbox(
+                    side_label, beam_ids, index=beam_ids.index(cur_id),
+                    key=f'asm_{i}_bf_{k}_sec',
+                    help='Beam section from the library. "none" = no beam on this side.',
+                )
+                bfd['ln_mm'] = cols[1].number_input(
+                    'ℓn [mm]', value=float(bfd['ln_mm']), min_value=0.0, step=100.0,
+                    key=f'asm_{i}_bf_{k}_ln',
+                    help='**ACI 18.6.5.1** — Clear span. Ve = (Mpr⁺+Mpr⁻)/ℓn + wu·ℓn/2.',
+                )
+                bfd['wu_kN_per_m'] = cols[2].number_input(
+                    'wu [kN/m]', value=float(bfd['wu_kN_per_m']), min_value=0.0, step=1.0,
+                    key=f'asm_{i}_bf_{k}_wu',
+                    help='Factored gravity load per unit length. Typical: 15–50 kN/m.',
+                )
+                bfd['x_mm'] = cols[3].number_input(
+                    'x [mm]', value=float(bfd['x_mm']), min_value=0.0, step=25.0,
+                    key=f'asm_{i}_bf_{k}_x',
+                    help='**ACI R15.5.2.2** — Offset from column face to beam centroid. Aj = b_col×(h_col+x).',
+                )
+                bfd['ext_mm'] = cols[4].number_input(
+                    'ext [mm]', value=float(bfd['ext_mm']), min_value=0.0, step=25.0,
+                    key=f'asm_{i}_bf_{k}_ext',
+                    help='**ACI 15.5.2.5(c)** — Beam extension beyond far joint face. ≥ h_beam required.',
+                )
+                bfd['continuous'] = cols[5].checkbox(
+                    'Cont.', value=bool(bfd['continuous']),
+                    key=f'asm_{i}_bf_{k}_cont',
+                    help='**ACI 18.6.3** — True if bars are continuous through joint.',
+                )
+            st.divider()
 
 
 def _render_asm_loads(asm: dict, i: int) -> None:
