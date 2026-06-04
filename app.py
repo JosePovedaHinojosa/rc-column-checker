@@ -1126,6 +1126,228 @@ def _draw_asm_beams_diagram(asm: dict) -> plt.Figure:
     fig.tight_layout(pad=0.1)
     return fig
 
+
+def _draw_asm_loads_diagram(asm: dict, lc: dict) -> plt.Figure:
+    """
+    Two-panel force diagram for one load case.
+    Left  — elevation (x-z plane): Pu, Mux curved moment, Vux shear.
+    Right — cross-section plan (x-y): axes + Vux/Vuy arrows + Mux/Muy rotation arrows.
+    All arrows scaled proportionally; sign drives direction.
+    """
+    import math as _math
+    import matplotlib.patches as _mp
+
+    Pu  = float(lc.get('Pu_kN',   0.0))
+    Mux = float(lc.get('Mux_kNm', 0.0))
+    Muy = float(lc.get('Muy_kNm', 0.0))
+    Vux = float(lc.get('Vux_kN',  0.0))
+    Vuy = float(lc.get('Vuy_kN',  0.0))
+
+    # Section dims for cross-section panel
+    sec_map = {s['section_id']: s for s in st.session_state.get('column_sections', [])}
+    sec     = sec_map.get(asm.get('col_section_id', ''), {})
+    b = float(sec.get('b_mm', 300))
+    h = float(sec.get('h_mm', 300))
+
+    fig, (ax_el, ax_sec) = plt.subplots(1, 2, figsize=(3.4, 4.0),
+                                         gridspec_kw={'width_ratios': [3, 2]})
+    for ax in (ax_el, ax_sec):
+        ax.set_aspect('equal', adjustable='datalim')
+        ax.axis('off')
+
+    # ── helpers ────────────────────────────────────────────────────────────────
+    _C = {'Pu': '#1a5fa8', 'Mux': '#c03030', 'Muy': '#1e8c45',
+          'Vux': '#e07000', 'Vuy': '#7b22c2'}
+    ref = max(abs(Pu)*0.004, abs(Mux)*0.012, abs(Muy)*0.012,
+              abs(Vux)*0.015, abs(Vuy)*0.015, 1.0)   # scaling reference
+
+    def _arrow(ax, x0, y0, dx, dy, col, lw=1.6):
+        if abs(dx) + abs(dy) < 1e-9:
+            return
+        ax.annotate('', xy=(x0+dx, y0+dy), xytext=(x0, y0),
+                    arrowprops=dict(arrowstyle='->', color=col,
+                                   lw=lw, mutation_scale=8),
+                    annotation_clip=False)
+
+    def _label(ax, x, y, txt, col, ha='left', va='center', fs=5.5):
+        ax.text(x, y, txt, ha=ha, va=va, fontsize=fs, color=col,
+                fontweight='bold')
+
+    def _moment_arc(ax, cx, cy, r, start_deg, end_deg, col, sign=1):
+        """Draw a curved moment arc with arrowhead at the end."""
+        import numpy as _np
+        ts = _np.linspace(_math.radians(start_deg),
+                          _math.radians(end_deg), 40)
+        xs = cx + r * _np.cos(ts)
+        ys = cy + r * _np.sin(ts)
+        ax.plot(xs, ys, color=col, lw=1.4)
+        # arrowhead at the end
+        dx_ = xs[-1] - xs[-2]; dy_ = ys[-1] - ys[-2]
+        ax.annotate('', xy=(xs[-1]+dx_*0.3, ys[-1]+dy_*0.3),
+                    xytext=(xs[-1], ys[-1]),
+                    arrowprops=dict(arrowstyle='->', color=col, lw=1.2,
+                                   mutation_scale=7),
+                    annotation_clip=False)
+
+    # ── LEFT PANEL  —  elevation (x-z) ────────────────────────────────────────
+    cw  = 40      # column width in pts (arbitrary units)
+    ch  = 140     # column height
+    cx0 = 20      # column left edge
+    cy0 = 20      # column bottom
+
+    import numpy as np
+
+    # column body
+    ax_el.add_patch(_mp.Rectangle((cx0, cy0), cw, ch,
+                                   facecolor='#d4c8b3', edgecolor='#444',
+                                   linewidth=1.3, zorder=2))
+
+    # joint dots
+    jc = '#1a1a8c'
+    for yj in (cy0, cy0+ch):
+        ax_el.plot(cx0+cw/2, yj, 'o', color=jc, ms=5, zorder=4,
+                   mfc=jc, mew=1)
+
+    # axis indicators bottom-left
+    orig_x, orig_y = cx0 - 18, cy0 - 20
+    ax_el.annotate('', xy=(orig_x+16, orig_y),
+                   xytext=(orig_x, orig_y),
+                   arrowprops=dict(arrowstyle='->', color='#888', lw=0.8))
+    ax_el.text(orig_x+17, orig_y, 'x', ha='left', va='center', fontsize=5, color='#888')
+    ax_el.annotate('', xy=(orig_x, orig_y+16),
+                   xytext=(orig_x, orig_y),
+                   arrowprops=dict(arrowstyle='->', color='#888', lw=0.8))
+    ax_el.text(orig_x, orig_y+17, 'z', ha='center', va='bottom', fontsize=5, color='#888')
+
+    top_y = cy0 + ch
+    mid_y = cy0 + ch * 0.65
+    col_cx = cx0 + cw / 2
+
+    # Pu — vertical arrow at top centre
+    if abs(Pu) > 0.01:
+        pu_len = min(max(abs(Pu) / ref * 22, 10), 45)
+        if Pu > 0:   # compression: arrow points into column (downward)
+            _arrow(ax_el, col_cx, top_y + pu_len, 0, -pu_len,
+                   _C['Pu'], lw=1.8)
+            _label(ax_el, col_cx + 3, top_y + pu_len * 0.55,
+                   f'Pu={Pu:.0f} kN\n(comp)', _C['Pu'], ha='left', fs=5)
+        else:        # tension: arrow points away (upward)
+            _arrow(ax_el, col_cx, top_y, 0, pu_len, _C['Pu'], lw=1.8)
+            _label(ax_el, col_cx + 3, top_y + pu_len * 0.55,
+                   f'Pu={abs(Pu):.0f} kN\n(tens)', _C['Pu'], ha='left', fs=5)
+
+    # Vux — horizontal arrow at ~2/3 height
+    if abs(Vux) > 0.01:
+        vu_len = min(max(abs(Vux) / ref * 30, 8), 50)
+        sgn_x = 1 if Vux > 0 else -1
+        x_start = cx0 + cw if sgn_x > 0 else cx0
+        _arrow(ax_el, x_start, mid_y, sgn_x * vu_len, 0, _C['Vux'])
+        _label(ax_el,
+               x_start + sgn_x * (vu_len + 2), mid_y,
+               f'Vux\n{Vux:.0f}', _C['Vux'],
+               ha='left' if sgn_x > 0 else 'right', fs=5)
+
+    # Mux — curved moment arc at top and bottom (rotation about x-axis)
+    if abs(Mux) > 0.01:
+        r_arc = cw * 0.52
+        sign_m = 1 if Mux > 0 else -1
+        for yj, flip in ((top_y, 1), (cy0, -1)):
+            s = sign_m * flip
+            _moment_arc(ax_el, cx0 - r_arc * 0.3, yj,
+                        r_arc,
+                        start_deg=20 * s, end_deg=160 * s,
+                        col=_C['Mux'], sign=s)
+        _label(ax_el, cx0 - r_arc - 6, (top_y + cy0) / 2,
+               f'Mux\n{Mux:.0f}', _C['Mux'], ha='right', fs=5)
+
+    ax_el.set_xlim(cx0 - 75, cx0 + cw + 75)
+    ax_el.set_ylim(cy0 - 38, top_y + 60)
+    ax_el.set_title('Elevation (x–z)', fontsize=5.5, pad=2, color='#555')
+
+    # ── RIGHT PANEL  —  cross-section plan (x-y) ──────────────────────────────
+    # draw section scaled to fit panel
+    scale = 80 / max(b, h)
+    bw = b * scale
+    hw = h * scale
+    sx0, sy0 = -bw / 2, -hw / 2    # section centred at (0,0)
+
+    ax_sec.add_patch(_mp.Rectangle((sx0, sy0), bw, hw,
+                                    facecolor='#d4c8b3', edgecolor='#444',
+                                    linewidth=1.2, zorder=2))
+
+    # x-y axis arrows from centroid
+    arl = 28
+    ax_sec.annotate('', xy=(arl, 0), xytext=(0, 0),
+                    arrowprops=dict(arrowstyle='->', color='#555', lw=0.9))
+    ax_sec.text(arl + 2, 0, 'x', ha='left', va='center', fontsize=5.5, color='#555')
+    ax_sec.annotate('', xy=(0, arl), xytext=(0, 0),
+                    arrowprops=dict(arrowstyle='->', color='#555', lw=0.9))
+    ax_sec.text(0, arl + 2, 'y', ha='center', va='bottom', fontsize=5.5, color='#555')
+
+    # Vux in x-direction
+    if abs(Vux) > 0.01:
+        vl = min(max(abs(Vux) / ref * 20, 6), 35)
+        sgn = 1 if Vux > 0 else -1
+        _arrow(ax_sec, 0, 0, sgn * vl, 0, _C['Vux'])
+        _label(ax_sec, sgn * (vl + 2), -4,
+               f'{Vux:.0f}', _C['Vux'], ha='left' if sgn > 0 else 'right', fs=4.5)
+
+    # Vuy in y-direction
+    if abs(Vuy) > 0.01:
+        vl = min(max(abs(Vuy) / ref * 20, 6), 35)
+        sgn = 1 if Vuy > 0 else -1
+        _arrow(ax_sec, 0, 0, 0, sgn * vl, _C['Vuy'])
+        _label(ax_sec, 3, sgn * (vl + 2),
+               f'{Vuy:.0f}', _C['Vuy'], ha='left', fs=4.5)
+
+    # Mux rotation arrow (around x-axis → rotation in y-z, shown as arc around y-axis in plan)
+    if abs(Mux) > 0.01:
+        r_s = bw * 0.65
+        sgn = 1 if Mux > 0 else -1
+        ts = np.linspace(0, _math.pi * 1.4, 40)
+        xs = -r_s * 1.0 + r_s * np.cos(ts) * 0.5
+        ys = r_s * np.sin(ts) * sgn
+        ax_sec.plot(xs, ys, color=_C['Mux'], lw=1.2, linestyle='-')
+        dx_ = xs[-1]-xs[-2]; dy_ = ys[-1]-ys[-2]
+        ax_sec.annotate('', xy=(xs[-1]+dx_*0.4, ys[-1]+dy_*0.4),
+                        xytext=(xs[-1], ys[-1]),
+                        arrowprops=dict(arrowstyle='->', color=_C['Mux'],
+                                        lw=1.1, mutation_scale=6),
+                        annotation_clip=False)
+        _label(ax_sec, xs.min() - 4, 0,
+               f'Mux\n{Mux:.0f}', _C['Mux'], ha='right', fs=4.5)
+
+    # Muy rotation arrow
+    if abs(Muy) > 0.01:
+        r_s = hw * 0.65
+        sgn = 1 if Muy > 0 else -1
+        ts = np.linspace(0, _math.pi * 1.4, 40)
+        xs = r_s * np.sin(ts) * sgn
+        ys = r_s * 1.0 - r_s * np.cos(ts) * 0.5
+        ax_sec.plot(xs, ys, color=_C['Muy'], lw=1.2)
+        dx_ = xs[-1]-xs[-2]; dy_ = ys[-1]-ys[-2]
+        ax_sec.annotate('', xy=(xs[-1]+dx_*0.4, ys[-1]+dy_*0.4),
+                        xytext=(xs[-1], ys[-1]),
+                        arrowprops=dict(arrowstyle='->', color=_C['Muy'],
+                                        lw=1.1, mutation_scale=6),
+                        annotation_clip=False)
+        _label(ax_sec, 0, ys.max() + 4,
+               f'Muy\n{Muy:.0f}', _C['Muy'], ha='center', va='bottom', fs=4.5)
+
+    # b × h label
+    ax_sec.text(0, sy0 - 10, f'b={b:.0f} × h={h:.0f} mm',
+                ha='center', va='top', fontsize=4.5, color='#777')
+
+    ax_sec.set_xlim(-80, 80)
+    ax_sec.set_ylim(-80, 80)
+    ax_sec.set_title('Cross-section (x–y)', fontsize=5.5, pad=2, color='#555')
+
+    fig.suptitle(f'{lc.get("load_case","?")}  ·  Pu={Pu:.0f} kN',
+                 fontsize=5.5, color='#333', y=1.01)
+    fig.tight_layout(pad=0.3)
+    return fig
+
+
 def _render_asm_identity(asm: dict, i: int, sec_ids: list[str]) -> None:
     adj_opts = sec_ids + ['same', 'none']
 
@@ -1274,59 +1496,66 @@ def _render_asm_loads(asm: dict, i: int) -> None:
     for j, lc in enumerate(load_cases):
         label = lc.get('load_case', f'Case {j+1}')
         with st.expander(f'**{label}**', expanded=(j == 0)):
-            c1, c2 = st.columns([3, 1])
-            lc['load_case'] = c1.text_input(
-                'Load case name', value=lc['load_case'], key=f'asm_{i}_lc_{j}_name',
-                help='Label (e.g. "1.2D+1.6L", "RSA_X+0.3Y+0.5D").',
-            )
-            ds_opts = ['IO', 'LS', 'CP']
-            ds_idx = ds_opts.index(lc['damage_state']) if lc['damage_state'] in ds_opts else 2
-            lc['damage_state'] = c2.selectbox(
-                'Damage state', ds_opts, index=ds_idx, key=f'asm_{i}_lc_{j}_ds',
-                help=(
-                    '**ASCE 41 §2.4.1** — Performance level:\n'
-                    '- **IO**: θ_IO = 0.10 × θ_b\n'
-                    '- **LS**: θ_LS = 0.50 × θ_b\n'
-                    '- **CP**: θ_CP = 0.70 × θ_b'
-                ),
-            )
-            c3, c4, c5, c6, c7 = st.columns(5)
-            lc['Pu_kN'] = c3.number_input(
-                'Pu [kN]', value=float(lc['Pu_kN']), step=100.0,
-                key=f'asm_{i}_lc_{j}_pu',
-                help='Factored axial. **Positive = compression**. Affects φ factor and Vc.',
-            )
-            lc['Mux_kNm'] = c4.number_input(
-                'Mux [kN·m]', value=float(lc['Mux_kNm']), step=50.0,
-                key=f'asm_{i}_lc_{j}_mux',
-                help='Factored moment about x-axis. Compared to φMn,x(Pu).',
-            )
-            lc['Muy_kNm'] = c5.number_input(
-                'Muy [kN·m]', value=float(lc['Muy_kNm']), step=50.0,
-                key=f'asm_{i}_lc_{j}_muy',
-            )
-            lc['Vux_kN'] = c6.number_input(
-                'Vux [kN]', value=float(lc['Vux_kN']), step=10.0,
-                key=f'asm_{i}_lc_{j}_vux',
-                help='Factored shear x. Vc may be zeroed per ACI 18.7.6.2.',
-            )
-            lc['Vuy_kN'] = c7.number_input(
-                'Vuy [kN]', value=float(lc['Vuy_kN']), step=10.0,
-                key=f'asm_{i}_lc_{j}_vuy',
-            )
-            cr1, cr2 = st.columns(2)
-            lc['RotX'] = cr1.number_input(
-                'RotX [rad]', value=float(lc['RotX']), format='%.5f', step=0.001,
-                key=f'asm_{i}_lc_{j}_rotx',
-                help='**ASCE 41 §10.4.2.2** — Plastic chord rotation demand about x from nonlinear analysis.',
-            )
-            lc['RotY'] = cr2.number_input(
-                'RotY [rad]', value=float(lc['RotY']), format='%.5f', step=0.001,
-                key=f'asm_{i}_lc_{j}_roty',
-            )
-            if st.button(f'🗑 Remove case {j+1}', key=f'asm_{i}_del_lc_{j}'):
-                asm['load_cases'].pop(j)
-                st.rerun()
+            _lc_form, _lc_diag = st.columns([3, 2])
+            with _lc_diag:
+                st.caption('Force diagram')
+                _fig_lc = _draw_asm_loads_diagram(asm, lc)
+                st.pyplot(_fig_lc, use_container_width=True)
+                plt.close(_fig_lc)
+            with _lc_form:
+                c1, c2 = st.columns([3, 1])
+                lc['load_case'] = c1.text_input(
+                    'Load case name', value=lc['load_case'], key=f'asm_{i}_lc_{j}_name',
+                    help='Label (e.g. "1.2D+1.6L", "RSA_X+0.3Y+0.5D").',
+                )
+                ds_opts = ['IO', 'LS', 'CP']
+                ds_idx = ds_opts.index(lc['damage_state']) if lc['damage_state'] in ds_opts else 2
+                lc['damage_state'] = c2.selectbox(
+                    'Damage state', ds_opts, index=ds_idx, key=f'asm_{i}_lc_{j}_ds',
+                    help=(
+                        '**ASCE 41 §2.4.1** — Performance level:\n'
+                        '- **IO**: θ_IO = 0.10 × θ_b\n'
+                        '- **LS**: θ_LS = 0.50 × θ_b\n'
+                        '- **CP**: θ_CP = 0.70 × θ_b'
+                    ),
+                )
+                c3, c4, c5, c6, c7 = st.columns(5)
+                lc['Pu_kN'] = c3.number_input(
+                    'Pu [kN]', value=float(lc['Pu_kN']), step=100.0,
+                    key=f'asm_{i}_lc_{j}_pu',
+                    help='Factored axial. **Positive = compression**. Affects φ factor and Vc.',
+                )
+                lc['Mux_kNm'] = c4.number_input(
+                    'Mux [kN·m]', value=float(lc['Mux_kNm']), step=50.0,
+                    key=f'asm_{i}_lc_{j}_mux',
+                    help='Factored moment about x-axis. Compared to φMn,x(Pu).',
+                )
+                lc['Muy_kNm'] = c5.number_input(
+                    'Muy [kN·m]', value=float(lc['Muy_kNm']), step=50.0,
+                    key=f'asm_{i}_lc_{j}_muy',
+                )
+                lc['Vux_kN'] = c6.number_input(
+                    'Vux [kN]', value=float(lc['Vux_kN']), step=10.0,
+                    key=f'asm_{i}_lc_{j}_vux',
+                    help='Factored shear x. Vc may be zeroed per ACI 18.7.6.2.',
+                )
+                lc['Vuy_kN'] = c7.number_input(
+                    'Vuy [kN]', value=float(lc['Vuy_kN']), step=10.0,
+                    key=f'asm_{i}_lc_{j}_vuy',
+                )
+                cr1, cr2 = st.columns(2)
+                lc['RotX'] = cr1.number_input(
+                    'RotX [rad]', value=float(lc['RotX']), format='%.5f', step=0.001,
+                    key=f'asm_{i}_lc_{j}_rotx',
+                    help='**ASCE 41 §10.4.2.2** — Plastic chord rotation demand about x from nonlinear analysis.',
+                )
+                lc['RotY'] = cr2.number_input(
+                    'RotY [rad]', value=float(lc['RotY']), format='%.5f', step=0.001,
+                    key=f'asm_{i}_lc_{j}_roty',
+                )
+                if st.button(f'🗑 Remove case {j+1}', key=f'asm_{i}_del_lc_{j}'):
+                    asm['load_cases'].pop(j)
+                    st.rerun()
 
     if st.button('➕ Add load case', key=f'asm_{i}_add_lc'):
         n = len(load_cases) + 1
