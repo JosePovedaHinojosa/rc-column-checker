@@ -151,33 +151,49 @@ def _default_column_section(section_id: str = 'COL_SEC_1') -> dict:
     }
 
 
+def _default_beam_slot(section_id: str = 'none', ln_mm: float = 0.0,
+                       wu: float = 0.0, continuous: bool = False) -> dict:
+    return {'section_id': section_id, 'ln_mm': ln_mm, 'wu_kN_per_m': wu,
+            'x_mm': 0.0, 'ext_mm': 0.0, 'continuous': continuous}
+
+
 def _default_assembly(col_id: str = 'COL_1', col_section_id: str = 'COL_SEC_1') -> dict:
-    beam_faces: dict = {}
-    for face in BEAM_FACES:
-        for side in ('side1', 'side2'):
-            beam_faces[f'{face}_{side}'] = {
-                'section_id':  'none',
-                'ln_mm':       0.0,
-                'wu_kN_per_m': 0.0,
-                'x_mm':        0.0,
-                'ext_mm':      0.0,
-                'continuous':  True,
-            }
+    # Corner column: one beam in x-direction and one in y-direction,
+    # both at the top joint only (side1).  All other slots = none.
+    empty = _default_beam_slot()
+    beam_faces: dict = {
+        # top joint — x-direction: one beam (side1), nothing on side2
+        'beam_top_x_side1': _default_beam_slot('BEAM_X', ln_mm=6000.0, wu=20.0, continuous=False),
+        'beam_top_x_side2': _default_beam_slot(),
+        # top joint — y-direction: one beam (side1), nothing on side2
+        'beam_top_y_side1': _default_beam_slot('BEAM_Y', ln_mm=5000.0, wu=20.0, continuous=False),
+        'beam_top_y_side2': _default_beam_slot(),
+        # bottom joint — no beams (column sits on foundation or below first floor)
+        'beam_bottom_x_side1': _default_beam_slot(),
+        'beam_bottom_x_side2': _default_beam_slot(),
+        'beam_bottom_y_side1': _default_beam_slot(),
+        'beam_bottom_y_side2': _default_beam_slot(),
+    }
     return {
         'col_id':                   col_id,
         'col_section_id':           col_section_id,
         'story':                    '1',
         'frame_type':               'SMF',
-        'clear_height_mm':          3000.0,
+        'clear_height_mm':          3200.0,
         'top_other_col_id':         'same',
-        'bottom_other_col_id':      'same',
+        'bottom_other_col_id':      'none',    # base column
         'joint_top':                True,
-        'joint_bottom':             True,
+        'joint_bottom':             False,     # footing, no beam-column joint
         'yielding_region_expected': True,
         'beam_faces':               beam_faces,
         'load_cases': [
-            {'load_case': 'U1', 'Pu_kN': 1500.0, 'Mux_kNm': 300.0, 'Muy_kNm': 200.0,
-             'Vux_kN': 100.0, 'Vuy_kN': 80.0, 'RotX': 0.0, 'RotY': 0.0, 'damage_state': 'CP'},
+            # Typical corner column: lower axial, significant biaxial moments
+            {'load_case': 'U1',  'Pu_kN': 800.0,  'Mux_kNm': 150.0, 'Muy_kNm': 120.0,
+             'Vux_kN': 55.0, 'Vuy_kN': 45.0, 'RotX': 0.0, 'RotY': 0.0, 'damage_state': 'CP'},
+            {'load_case': 'RSX', 'Pu_kN': 650.0,  'Mux_kNm': 210.0, 'Muy_kNm':  80.0,
+             'Vux_kN': 80.0, 'Vuy_kN': 30.0, 'RotX': 0.0, 'RotY': 0.0, 'damage_state': 'CP'},
+            {'load_case': 'RSY', 'Pu_kN': 680.0,  'Mux_kNm':  70.0, 'Muy_kNm': 190.0,
+             'Vux_kN': 28.0, 'Vuy_kN': 75.0, 'RotX': 0.0, 'RotY': 0.0, 'damage_state': 'CP'},
         ],
     }
 
@@ -195,6 +211,10 @@ def _init_state() -> None:
             dict(beam_section_id='BEAM_X', bw_mm=300.0, h_mm=500.0, cover_mm=40.0,
                  fc_MPa=28.0, fy_long_MPa=420.0, fy_trans_MPa=420.0,
                  n_bars_top=4, db_top_mm=16.0, n_bars_bot=3, db_bot_mm=16.0,
+                 stirrup_db_mm=10.0),
+            dict(beam_section_id='BEAM_Y', bw_mm=300.0, h_mm=450.0, cover_mm=40.0,
+                 fc_MPa=28.0, fy_long_MPa=420.0, fy_trans_MPa=420.0,
+                 n_bars_top=3, db_top_mm=16.0, n_bars_bot=2, db_bot_mm=16.0,
                  stirrup_db_mm=10.0),
         ]
 
