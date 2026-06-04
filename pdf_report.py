@@ -17,12 +17,15 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+import matplotlib
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     HRFlowable,
     Image,
@@ -32,6 +35,19 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+
+# ── Unicode font (DejaVuSans ships with matplotlib — supports Greek + math) ───
+def _register_fonts() -> tuple[str, str]:
+    try:
+        _ttf = Path(matplotlib.get_data_path()) / 'fonts' / 'ttf'
+        pdfmetrics.registerFont(TTFont('DVSans',      str(_ttf / 'DejaVuSans.ttf')))
+        pdfmetrics.registerFont(TTFont('DVSans-Bold', str(_ttf / 'DejaVuSans-Bold.ttf')))
+        pdfmetrics.registerFontFamily('DVSans', normal='DVSans', bold='DVSans-Bold')
+        return 'DVSans', 'DVSans-Bold'
+    except Exception:
+        return 'Helvetica', 'Helvetica-Bold'
+
+_FONT, _FONT_BOLD = _register_fonts()
 
 # ── page geometry ─────────────────────────────────────────────────────────────
 _W, _H   = A4                        # 595 × 842 pt
@@ -50,20 +66,20 @@ _AMBER      = colors.HexColor('#d06000')
 _BASE = getSampleStyleSheet()
 
 _S_TITLE = ParagraphStyle(
-    'ReportTitle', parent=_BASE['Normal'], fontSize=14, fontName='Helvetica-Bold',
+    'ReportTitle', parent=_BASE['Normal'], fontSize=14, fontName=_FONT_BOLD,
     textColor=_BLACK, spaceAfter=2 * mm, spaceBefore=0,
 )
 _S_H2 = ParagraphStyle(
-    'ReportH2', parent=_BASE['Normal'], fontSize=10, fontName='Helvetica-Bold',
+    'ReportH2', parent=_BASE['Normal'], fontSize=10, fontName=_FONT_BOLD,
     textColor=_BLACK, spaceAfter=2 * mm, spaceBefore=4 * mm,
 )
 _S_CELL = ParagraphStyle(
     'Cell', parent=_BASE['Normal'], fontSize=7.5, leading=9.5,
-    fontName='Helvetica',
+    fontName=_FONT,
 )
 _S_CELL_B = ParagraphStyle(
     'CellBold', parent=_BASE['Normal'], fontSize=7.5, leading=9.5,
-    fontName='Helvetica-Bold', textColor=colors.white,
+    fontName=_FONT_BOLD, textColor=colors.white,
 )
 _S_SMALL = ParagraphStyle(
     'Small', parent=_BASE['Normal'], fontSize=7, leading=9,
@@ -461,7 +477,7 @@ def _make_on_page(logo_path: str | None, pry_name: str, column_id: str):
         canvas.line(_MARGIN, _H - 14 * mm, _W - _MARGIN, _H - 14 * mm)
 
         # left: project / column label
-        canvas.setFont('Helvetica', 8)
+        canvas.setFont(_FONT, 8)
         canvas.setFillColor(_BLACK)
         label = f'PROJECT: {pry_name}   |   {column_id}' if pry_name else column_id
         canvas.drawString(_MARGIN, _H - 8 * mm, label)
@@ -471,7 +487,7 @@ def _make_on_page(logo_path: str | None, pry_name: str, column_id: str):
             try:
                 _logo_w = 44 * mm
                 _gap    = 2 * mm
-                canvas.setFont('Helvetica', 6)
+                canvas.setFont(_FONT, 6)
                 _pb = 'powered by'
                 _pb_w = canvas.stringWidth(_pb, 'Helvetica', 6)
                 canvas.setFillColor(colors.HexColor('#aaaaaa'))
@@ -491,10 +507,10 @@ def _make_on_page(logo_path: str | None, pry_name: str, column_id: str):
 
         # footer
         canvas.line(_MARGIN, 12 * mm, _W - _MARGIN, 12 * mm)
-        canvas.setFont('Helvetica', 7.5)
+        canvas.setFont(_FONT, 7.5)
         canvas.setFillColor(colors.HexColor('#555555'))
         canvas.drawCentredString(_W / 2, 9 * mm, str(doc.page))
-        canvas.setFont('Helvetica', 6)
+        canvas.setFont(_FONT, 6)
         canvas.setFillColor(colors.HexColor('#aaaaaa'))
         canvas.drawCentredString(
             _W / 2, 5 * mm,

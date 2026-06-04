@@ -35,6 +35,10 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+import matplotlib
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
 from constants import (
     ACI_ALPHA1, ACI_BETA1_FC_PIVOT, ACI_BETA1_FC_STEP,
     ACI_BETA1_MAX, ACI_BETA1_MIN, ACI_BETA1_SLOPE,
@@ -55,6 +59,19 @@ from constants import (
     ASCE41_FYE_DEFAULT, ASCE41_FYTE_DEFAULT,
 )
 
+# ── Unicode font ──────────────────────────────────────────────────────────────
+def _register_fonts() -> tuple[str, str]:
+    try:
+        _ttf = Path(matplotlib.get_data_path()) / 'fonts' / 'ttf'
+        pdfmetrics.registerFont(TTFont('DVSans',      str(_ttf / 'DejaVuSans.ttf')))
+        pdfmetrics.registerFont(TTFont('DVSans-Bold', str(_ttf / 'DejaVuSans-Bold.ttf')))
+        pdfmetrics.registerFontFamily('DVSans', normal='DVSans', bold='DVSans-Bold')
+        return 'DVSans', 'DVSans-Bold'
+    except Exception:
+        return 'Helvetica', 'Helvetica-Bold'
+
+_FONT, _FONT_BOLD = _register_fonts()
+
 # ── page geometry ──────────────────────────────────────────────────────────────
 _W, _H   = A4
 _MARGIN  = 18 * mm
@@ -74,40 +91,40 @@ _SEC_LN  = colors.HexColor('#3a6ea5')
 _BASE = getSampleStyleSheet()
 
 _S_TITLE = ParagraphStyle('DTitle', parent=_BASE['Normal'],
-    fontSize=13, fontName='Helvetica-Bold', textColor=_BLACK,
+    fontSize=13, fontName=_FONT_BOLD, textColor=_BLACK,
     spaceAfter=1*mm, spaceBefore=0)
 _S_SUBTITLE = ParagraphStyle('DSubtitle', parent=_BASE['Normal'],
-    fontSize=9, fontName='Helvetica', textColor=_GRAY,
+    fontSize=9, fontName=_FONT, textColor=_GRAY,
     spaceAfter=3*mm, spaceBefore=0)
 _S_H2 = ParagraphStyle('DH2', parent=_BASE['Normal'],
-    fontSize=9.5, fontName='Helvetica-Bold', textColor=colors.white,
+    fontSize=9.5, fontName=_FONT_BOLD, textColor=colors.white,
     spaceAfter=0, spaceBefore=0, leftIndent=2*mm)
 _S_H3 = ParagraphStyle('DH3', parent=_BASE['Normal'],
-    fontSize=8.5, fontName='Helvetica-Bold', textColor=_SEC_LN,
+    fontSize=8.5, fontName=_FONT_BOLD, textColor=_SEC_LN,
     spaceAfter=1*mm, spaceBefore=3*mm)
 _S_BODY = ParagraphStyle('DBody', parent=_BASE['Normal'],
-    fontSize=7.5, fontName='Helvetica', textColor=_BLACK,
+    fontSize=7.5, fontName=_FONT, textColor=_BLACK,
     spaceAfter=1*mm, leading=10)
 _S_NOTE = ParagraphStyle('DNote', parent=_BASE['Normal'],
-    fontSize=6.5, fontName='Helvetica', textColor=_DGRAY,
+    fontSize=6.5, fontName=_FONT, textColor=_DGRAY,
     spaceAfter=1*mm, leading=8.5, leftIndent=4*mm)
 # equation styles
 _S_EQ_FORMULA = ParagraphStyle('DEqFormula', parent=_BASE['Normal'],
-    fontSize=8, fontName='Helvetica', textColor=_BLACK,
+    fontSize=8, fontName=_FONT, textColor=_BLACK,
     spaceAfter=0, leading=10, leftIndent=4*mm)
 _S_EQ_SUBST = ParagraphStyle('DEqSubst', parent=_BASE['Normal'],
-    fontSize=7.5, fontName='Helvetica', textColor=_GRAY,
+    fontSize=7.5, fontName=_FONT, textColor=_GRAY,
     spaceAfter=0, leading=9.5, leftIndent=12*mm)
 _S_EQ_RESULT = ParagraphStyle('DEqResult', parent=_BASE['Normal'],
-    fontSize=8, fontName='Helvetica-Bold', textColor=_BLACK,
+    fontSize=8, fontName=_FONT_BOLD, textColor=_BLACK,
     spaceAfter=2*mm, leading=10, leftIndent=12*mm)
 _S_REF = ParagraphStyle('DRef', parent=_BASE['Normal'],
-    fontSize=6.5, fontName='Helvetica', textColor=_SEC_LN,
+    fontSize=6.5, fontName=_FONT, textColor=_SEC_LN,
     alignment=2)   # right-aligned
 _S_CELL = ParagraphStyle('DCell', parent=_BASE['Normal'],
-    fontSize=7, leading=9, fontName='Helvetica')
+    fontSize=7, leading=9, fontName=_FONT)
 _S_CELL_B = ParagraphStyle('DCellB', parent=_BASE['Normal'],
-    fontSize=7, leading=9, fontName='Helvetica-Bold', textColor=colors.white)
+    fontSize=7, leading=9, fontName=_FONT_BOLD, textColor=colors.white)
 _S_SMALL = ParagraphStyle('DSmall', parent=_BASE['Normal'],
     fontSize=6.5, leading=8, textColor=_DGRAY)
 
@@ -221,7 +238,7 @@ def _s1_input(row: dict, section_png: str) -> list:
         ('Tie spacing within ℓo [mm]', _f(row['tie_spacing_lo_mm'], 1)),
         ('Tie spacing outside ℓo [mm]', _f(row['tie_spacing_outside_lo_mm'], 1)),
     ]
-    _SKT_MAX_W, _SKT_MAX_H = 55*mm, 80*mm
+    _SKT_MAX_W, _SKT_MAX_H = 52*mm, 62*mm
     sketch: Any = Paragraph('(section not available)', _S_SMALL)
     if section_png and Path(section_png).exists():
         try:
@@ -232,7 +249,9 @@ def _s1_input(row: dict, section_png: str) -> list:
         except Exception:
             pass
     tbl_params = _kv_table(params)
-    layout = Table([[tbl_params, sketch]], colWidths=[80*mm, _INNER_W - 80*mm])
+    _left_w  = 85 * mm
+    _right_w = _INNER_W - _left_w
+    layout = Table([[tbl_params, sketch]], colWidths=[_left_w, _right_w])
     layout.setStyle(TableStyle([
         ('VALIGN',        (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING',   (0, 0), (-1, -1), 0),
@@ -240,8 +259,7 @@ def _s1_input(row: dict, section_png: str) -> list:
         ('TOPPADDING',    (0, 0), (-1, -1), 0),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
     ]))
-    story.append(layout)
-    story.append(Spacer(1, 4*mm))
+    story.append(KeepTogether([layout, Spacer(1, 4*mm)]))
     return story
 
 
@@ -993,7 +1011,7 @@ def _make_on_page(logo_path: str | None, pry_name: str, column_id: str):
         canvas.setLineWidth(0.5)
         canvas.line(_MARGIN, _H - 14*mm, _W - _MARGIN, _H - 14*mm)
 
-        canvas.setFont('Helvetica', 8)
+        canvas.setFont(_FONT, 8)
         canvas.setFillColor(_BLACK)
         label = f'PROJECT: {pry_name}   |   {column_id}' if pry_name else column_id
         canvas.drawString(_MARGIN, _H - 8*mm, label)
@@ -1002,7 +1020,7 @@ def _make_on_page(logo_path: str | None, pry_name: str, column_id: str):
             try:
                 _logo_w = 44*mm
                 _gap    = 2*mm
-                canvas.setFont('Helvetica', 6)
+                canvas.setFont(_FONT, 6)
                 _pb = 'powered by'
                 _pb_w = canvas.stringWidth(_pb, 'Helvetica', 6)
                 canvas.setFillColor(colors.HexColor('#aaaaaa'))
@@ -1015,10 +1033,10 @@ def _make_on_page(logo_path: str | None, pry_name: str, column_id: str):
                 pass
 
         canvas.line(_MARGIN, 12*mm, _W - _MARGIN, 12*mm)
-        canvas.setFont('Helvetica', 7.5)
+        canvas.setFont(_FONT, 7.5)
         canvas.setFillColor(_GRAY)
         canvas.drawCentredString(_W / 2, 9*mm, str(doc.page))
-        canvas.setFont('Helvetica', 6)
+        canvas.setFont(_FONT, 6)
         canvas.setFillColor(colors.HexColor('#aaaaaa'))
         canvas.drawCentredString(
             _W / 2, 5*mm,

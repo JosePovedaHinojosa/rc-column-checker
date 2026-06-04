@@ -519,6 +519,19 @@ def _write_loads_csv(path: Path) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def tab_section() -> None:
+    st.markdown(
+        """
+        <style>
+        /* Keep the section sketch visible while scrolling through the form */
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-child {
+            position: sticky;
+            top: 3.5rem;
+            align-self: flex-start;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     st.subheader('Column Section Library')
     st.caption(
         'Define one or more column cross-sections. '
