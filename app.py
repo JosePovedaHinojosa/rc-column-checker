@@ -1273,11 +1273,11 @@ def _draw_asm_loads_diagram(asm: dict, lc: dict) -> plt.Figure:
         sign_m = 1 if Mux > 0 else -1
         for yj, flip in ((top_y, 1), (cy0, -1)):
             s = sign_m * flip
-            _moment_arc(ax_el, cx0 - r_arc * 0.3, yj,
+            _moment_arc(ax_el, col_cx, yj,
                         r_arc,
                         start_deg=20 * s, end_deg=160 * s,
                         col=_C['Mux'], sign=s)
-        _label(ax_el, cx0 - r_arc - 6, (top_y + cy0) / 2,
+        _label(ax_el, col_cx - r_arc - 6, (top_y + cy0) / 2,
                f'Mux\n{Mux:.0f}', _C['Mux'], ha='right', fs=5)
 
     ax_el.set_xlim(cx0 - 75, cx0 + cw + 75)
