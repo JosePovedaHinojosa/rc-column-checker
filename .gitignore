@@ -1,5 +1,12 @@
 # Claude Code internal files
 .claude/
+CLAUDE.md
+
+# Teaching material (generated locally, synced via OneDrive)
+make_classroom_doc.py
+make_slides.py
+RC_Column_Checker_*.docx
+RC_Column_Checker_*.pptx
 
 # Python
 __pycache__/
