@@ -46,6 +46,98 @@ _DATA_KEYS: frozenset[str] = frozenset({
 })
 
 
+def _sync_widget_keys(data: dict) -> None:
+    """Pre-populate every widget's session-state key with the just-loaded values.
+
+    Streamlit sends the browser's current widget values back on every rerun.
+    If a key is merely deleted, the browser restores the old value before the
+    widget renders, so the input still shows stale data.  Setting the key
+    explicitly here (before any widget renders) forces the correct value.
+    """
+    ss = st.session_state
+
+    for i, sec in enumerate(data['column_sections']):
+        ss[f'csec_id_{i}']    = sec.get('section_id', '')
+        ss[f'csec_cov_{i}']   = float(sec.get('cover_mm', 40.0))
+        ss[f'csec_b_{i}']     = float(sec.get('b_mm', 400.0))
+        ss[f'csec_h_{i}']     = float(sec.get('h_mm', 400.0))
+        ss[f'csec_fc_{i}']    = float(sec.get('fc_MPa', 28.0))
+        ss[f'csec_fy_{i}']    = float(sec.get('fy_long_MPa', 420.0))
+        ss[f'csec_fyt_{i}']   = float(sec.get('fy_trans_MPa', 420.0))
+        ss[f'csec_nxt_{i}']   = int(sec.get('n_bars_x_top', 3))
+        ss[f'csec_nxb_{i}']   = int(sec.get('n_bars_x_bottom', 3))
+        ss[f'csec_nyl_{i}']   = int(sec.get('n_bars_y_left', 3))
+        ss[f'csec_nyr_{i}']   = int(sec.get('n_bars_y_right', 3))
+        ss[f'csec_db_{i}']    = float(sec.get('bar_db_mm', 16.0))
+        ss[f'csec_ttype_{i}'] = sec.get('tie_type', 'rectilinear')
+        ss[f'csec_tdb_{i}']   = float(sec.get('tie_db_mm', 10.0))
+        ss[f'csec_slo_{i}']   = float(sec.get('tie_spacing_lo_mm', 100.0))
+        ss[f'csec_solo_{i}']  = float(sec.get('tie_spacing_outside_lo_mm', 150.0))
+        ss[f'csec_ctdb_{i}']  = float(sec.get('crosstie_db_mm', 10.0))
+        ss[f'csec_hook_{i}']  = float(sec.get('hook_angle_deg', 135.0))
+        ss[f'csec_alt_{i}']   = bool(sec.get('crosstie_alt_anchorage', True))
+        ss[f'csec_olap_{i}']  = bool(sec.get('overlapping_hoops', False))
+        ss[f'csec_spir_{i}']  = bool(sec.get('spiral_provided', False))
+        ss[f'csec_nlx_{i}']   = int(sec.get('n_legs_x', 2))
+        ss[f'csec_nly_{i}']   = int(sec.get('n_legs_y', 2))
+        ss[f'csec_spl_{i}']   = bool(sec.get('asce_splice_controlled', False))
+        ss[f'csec_spl2_{i}']  = bool(sec.get('asce_splice_two_tie_groups', False))
+        ss[f'csec_anch_{i}']  = bool(sec.get('asce_ties_adequately_anchored', True))
+
+    for i, bsec in enumerate(data['beam_sections']):
+        ss[f'bsec_id_{i}'] = bsec.get('beam_section_id', '')
+        ss[f'bw_{i}']      = float(bsec.get('bw_mm', 300.0))
+        ss[f'bh_{i}']      = float(bsec.get('h_mm', 500.0))
+        ss[f'bcov_{i}']    = float(bsec.get('cover_mm', 40.0))
+        ss[f'bstir_{i}']   = float(bsec.get('stirrup_db_mm', 10.0))
+        ss[f'bfc_{i}']     = float(bsec.get('fc_MPa', 28.0))
+        ss[f'bfy_{i}']     = float(bsec.get('fy_long_MPa', 420.0))
+        ss[f'bfyt_{i}']    = float(bsec.get('fy_trans_MPa', 420.0))
+        ss[f'ntop_{i}']    = int(bsec.get('n_bars_top', 3))
+        ss[f'dbtop_{i}']   = float(bsec.get('db_top_mm', 16.0))
+        ss[f'nbot_{i}']    = int(bsec.get('n_bars_bot', 3))
+        ss[f'dbbot_{i}']   = float(bsec.get('db_bot_mm', 16.0))
+
+    sec_ids  = [s['section_id'] for s in data['column_sections']]
+    adj_opts = ['same', 'none'] + sec_ids
+    beam_ids = [b['beam_section_id'] for b in data['beam_sections']] + ['none']
+
+    for i, asm in enumerate(data['assemblies']):
+        ss[f'asm_{i}_col_id'] = asm.get('col_id', '')
+        _sec = asm.get('col_section_id', sec_ids[0] if sec_ids else '')
+        ss[f'asm_{i}_sec_sel'] = _sec if _sec in sec_ids else (sec_ids[0] if sec_ids else '')
+        ss[f'asm_{i}_story']   = asm.get('story', '')
+        ss[f'asm_{i}_ftype']   = asm.get('frame_type', 'SMF')
+        ss[f'asm_{i}_height']  = float(asm.get('clear_height_mm', 3000.0))
+        _top = asm.get('top_other_col_id', 'same')
+        ss[f'asm_{i}_top_sel'] = _top if _top in adj_opts else 'same'
+        _bot = asm.get('bottom_other_col_id', 'same')
+        ss[f'asm_{i}_bot_sel'] = _bot if _bot in adj_opts else 'same'
+        ss[f'asm_{i}_jt']      = bool(asm.get('joint_top', True))
+        ss[f'asm_{i}_jb']      = bool(asm.get('joint_bottom', True))
+        ss[f'asm_{i}_yield']   = bool(asm.get('yielding_region_expected', True))
+
+        for k, face in asm.get('beam_faces', {}).items():
+            _bid = face.get('section_id', 'none')
+            ss[f'asm_{i}_bf_{k}_sec']  = _bid if _bid in beam_ids else 'none'
+            ss[f'asm_{i}_bf_{k}_ln']   = float(face.get('ln_mm', 0.0))
+            ss[f'asm_{i}_bf_{k}_wu']   = float(face.get('wu_kN_per_m', 0.0))
+            ss[f'asm_{i}_bf_{k}_x']    = float(face.get('x_mm', 0.0))
+            ss[f'asm_{i}_bf_{k}_ext']  = float(face.get('ext_mm', 0.0))
+            ss[f'asm_{i}_bf_{k}_cont'] = bool(face.get('continuous', False))
+
+        for j, lc in enumerate(asm.get('load_cases', [])):
+            ss[f'asm_{i}_lc_{j}_name'] = lc.get('load_case', f'Case{j+1}')
+            ss[f'asm_{i}_lc_{j}_ds']   = lc.get('damage_state', 'CP')
+            ss[f'asm_{i}_lc_{j}_pu']   = float(lc.get('Pu_kN', 0.0))
+            ss[f'asm_{i}_lc_{j}_mux']  = float(lc.get('Mux_kNm', 0.0))
+            ss[f'asm_{i}_lc_{j}_muy']  = float(lc.get('Muy_kNm', 0.0))
+            ss[f'asm_{i}_lc_{j}_vux']  = float(lc.get('Vux_kN', 0.0))
+            ss[f'asm_{i}_lc_{j}_vuy']  = float(lc.get('Vuy_kN', 0.0))
+            ss[f'asm_{i}_lc_{j}_rotx'] = float(lc.get('RotX', 0.0))
+            ss[f'asm_{i}_lc_{j}_roty'] = float(lc.get('RotY', 0.0))
+
+
 def _apply_project_data(data: dict) -> None:
     """Replace session state with loaded project data, clearing all widget keys."""
     for k in [k for k in list(st.session_state.keys()) if k not in _DATA_KEYS]:
@@ -63,6 +155,7 @@ def _apply_project_data(data: dict) -> None:
     st.session_state['assemblies']      = data['assemblies']
     st.session_state['project_name']    = data.get('project_name', '')
     st.session_state['report_columns']  = []
+    _sync_widget_keys(data)
 
 
 def _project_io_panel() -> None:
