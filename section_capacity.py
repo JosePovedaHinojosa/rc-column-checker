@@ -250,6 +250,7 @@ def _beam_side_strength(face: str, side: str, row: Dict[str, object]) -> Dict[st
         'n_bars_bot': n_bot, 'db_bot_mm': db_bot, 'As_bot_mm2': As_bot,
         'Mn_pos_kNm': Mn_pos, 'Mn_neg_kNm': Mn_neg,
         'Mpr_pos_kNm': Mpr_pos, 'Mpr_neg_kNm': Mpr_neg,
+        'Tpr_pos_kN': Tpr_pos, 'Tpr_neg_kN': Tpr_neg,
         'joint_Mn_kNm': joint_Mn, 'joint_Mpr_kNm': joint_Mpr, 'joint_Tpr_kN': joint_Tpr,
         'jd_pos_mm': jd_pos, 'jd_neg_mm': jd_neg,
         'Ve_plus_kN': Ve_plus, 'Ve_minus_kN': Ve_minus,
@@ -287,7 +288,29 @@ def compute_beam_actions(row: Dict[str, object]) -> Dict[str, float]:
         data[f'{face}_Mpr_neg_kNm'] = sum(float(s['Mpr_neg_kNm']) for s in active)
         data[f'{face}_joint_Mn_kNm'] = sum(float(s['joint_Mn_kNm']) for s in active)
         data[f'{face}_joint_Mpr_kNm'] = sum(float(s['joint_Mpr_kNm']) for s in active)
-        data[f'{face}_joint_Tpr_kN'] = sum(float(s['joint_Tpr_kN']) for s in active)
+        # ACI 18.8.4.1: "tensile and compressive beam forces."
+        # For two-sided (interior) joint: evaluate both seismic scenarios and take the max.
+        #   Scenario A — side1 hogging, side2 sagging: T_neg_s1 + T_pos_s2
+        #   Scenario B — side1 sagging, side2 hogging: T_pos_s1 + T_neg_s2
+        # For one-sided (exterior) joint: max(T_top, T_bot) — the compression from the same
+        #   beam acts in the opposite direction and does not add to joint shear.
+        if n_active == 2:
+            s1, s2 = active[0], active[1]
+            Tn1 = float(s1['Tpr_neg_kN'])   # T_top (hogging) of side1
+            Tp1 = float(s1['Tpr_pos_kN'])   # T_bot (sagging) of side1
+            Tn2 = float(s2['Tpr_neg_kN'])   # T_top (hogging) of side2
+            Tp2 = float(s2['Tpr_pos_kN'])   # T_bot (sagging) of side2
+            scen_a = Tn1 + Tp2              # s1 hogs, s2 sags
+            scen_b = Tp1 + Tn2              # s1 sags, s2 hogs
+        elif n_active == 1:
+            Tn1 = float(active[0]['Tpr_neg_kN'])
+            Tp1 = float(active[0]['Tpr_pos_kN'])
+            scen_a = scen_b = max(Tn1, Tp1)
+        else:
+            scen_a = scen_b = 0.0
+        data[f'{face}_joint_Tpr_kN']        = max(scen_a, scen_b)
+        data[f'{face}_joint_Tpr_scen_a_kN'] = scen_a
+        data[f'{face}_joint_Tpr_scen_b_kN'] = scen_b
         data[f'{face}_x_mm'] = min([float(s['x_mm']) for s in active if float(s['x_mm']) > 0.0], default=0.0)
         # ext only matters for single-sided framing; otherwise not governing for current simplified logic
         data[f'{face}_ext_mm'] = float(active[0]['ext_mm']) if n_active == 1 else 0.0

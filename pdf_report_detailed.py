@@ -885,12 +885,23 @@ def _s9_joint(row: dict, joint_static: dict, cases: list, beam_static: dict) -> 
                 f'<b>Demand  —  critical case: {lc_name}  (Pu = {_f(Pu_crit,1)} kN)</b>',
                 _S_BODY,
             )]
-            story += _eq_block(
-                'Tpr = max(As,top, As,bot) × 1.25fy    (beam probable tension)',
-                f'= max({_f(As_top,0)}, {_f(As_bot,0)}) mm² × 1.25 × {_f(fy,0)} MPa / 1000',
-                f'= <b>{_f(Tpr,1)} kN</b>',
-                'ACI 18.8.2.1',
-            )
+            scen_a = float(beam_static.get(f'beam_{joint}_{axis}_joint_Tpr_scen_a_kN', 0.0))
+            scen_b = float(beam_static.get(f'beam_{joint}_{axis}_joint_Tpr_scen_b_kN', 0.0))
+            n_sides = int(beam_static.get(f'beam_{joint}_{axis}_n_active', 1))
+            if n_sides == 2:
+                story += _eq_block(
+                    'Tpr = max(T_neg,s1 + T_pos,s2 ; T_pos,s1 + T_neg,s2)    (critical seismic scenario)',
+                    f'Scen. A (s1 hogs + s2 sags) = {_f(scen_a,1)} kN  |  Scen. B (s1 sags + s2 hogs) = {_f(scen_b,1)} kN',
+                    f'= <b>{_f(Tpr,1)} kN</b>',
+                    'ACI 18.8.2.1 / 18.8.4.1',
+                )
+            else:
+                story += _eq_block(
+                    'Tpr = max(As,top, As,bot) × 1.25fy    (one-sided joint, critical direction)',
+                    f'= max({_f(As_top,0)}, {_f(As_bot,0)}) mm² × 1.25 × {_f(fy,0)} / 1000',
+                    f'= <b>{_f(Tpr,1)} kN</b>',
+                    'ACI 18.8.2.1',
+                )
             story += _eq_block(
                 'Ve,col = (Mpr,top,eff + Mpr,bot,eff) / lu    (column probable shear)',
                 f'= ({_f(Mpr_top,1)} + {_f(Mpr_bot,1)}) kN·m / {_f(lu_m,3)} m',
