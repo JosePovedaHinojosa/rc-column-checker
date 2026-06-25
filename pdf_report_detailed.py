@@ -800,21 +800,25 @@ def _s8_scwb(row: dict, cases: list) -> list:
     return story
 
 
-def _s9_joint(row: dict, joint_static: dict) -> list:
-    story = _section_header('9  |  Joint Shear Capacity  —  ACI 15.4.2.1')
+def _s9_joint(row: dict, joint_static: dict, cases: list, beam_static: dict) -> list:
+    story = _section_header('9  |  Joint Shear Capacity & Demand  —  ACI 18.8.4')
     story += [Paragraph(
-        'Joint shear strength: Vn = αj · √f\'c · Aj.  '
-        'αj depends on joint continuity and confinement per ACI Table 15.4.2.3.',
+        'Capacity: Vn = αj · √f\'c · Aj  (ACI 15.4.2.1, φ = 0.85).  '
+        'Demand: Vj = Tpr,beams − Ve,col  (ACI 18.8.2.1 / 18.8.4.1).  '
+        'Tpr uses 1.25fy; Ve,col = (Mpr,top,eff + Mpr,bot,eff) / lu.',
         _S_BODY,
     ), Spacer(1, 2*mm)]
 
-    fc = float(row['fc_MPa'])
+    fc  = float(row['fc_MPa'])
+    fy  = float(row['fy_long_MPa'])
     any_active = False
+
     for joint in ['top', 'bottom']:
         for axis in ['x', 'y']:
             if not joint_static.get(f'joint_{joint}_{axis}_active', False):
                 continue
             any_active = True
+
             coeff = float(joint_static[f'joint_{joint}_{axis}_coeff'])
             Aj    = float(joint_static[f'joint_{joint}_{axis}_Aj_mm2'])
             Vn    = float(joint_static[f'joint_{joint}_{axis}_Vn_kN'])
@@ -822,14 +826,18 @@ def _s9_joint(row: dict, joint_static: dict) -> list:
             conf  = bool(joint_static[f'joint_{joint}_{axis}_confined'])
             eff_w = float(joint_static[f'joint_{joint}_{axis}_eff_width_mm'])
             h_j   = float(joint_static[f'joint_{joint}_{axis}_h_joint_mm'])
+
             story += [Paragraph(
-                f'<b>{joint.capitalize()} joint — axis {axis}</b>'
+                f'<b>{joint.capitalize()} joint — axis {axis.upper()}</b>'
                 f'  (confined: {"yes" if conf else "no"},  αj = {coeff})',
                 _S_H3,
             )]
+
+            # ── Capacity ─────────────────────────────────────────────────────
+            story += [Paragraph('<b>Capacity</b>', _S_BODY)]
             story += _eq_block(
                 'Aj = h_joint · beff    (effective joint area)',
-                f'= {_f(h_j,0)} × {_f(eff_w,0)}',
+                f'= {_f(h_j,0)} mm × {_f(eff_w,0)} mm',
                 f'= <b>{_f(Aj,0)} mm²</b>',
                 'ACI R15.4.2.4',
             )
@@ -845,6 +853,111 @@ def _s9_joint(row: dict, joint_static: dict) -> list:
                 f'= <b>{_f(pVn,1)} kN</b>',
                 'ACI Table 21.2.1(d)',
             )
+
+            # ── Demand ───────────────────────────────────────────────────────
+            # Tpr is constant (depends only on beam geometry, not load)
+            Tpr    = float(beam_static.get(f'beam_{joint}_{axis}_joint_Tpr_kN', 0.0))
+            As_top = float(beam_static.get(f'beam_{joint}_{axis}_As_top_mm2', 0.0))
+            As_bot = float(beam_static.get(f'beam_{joint}_{axis}_As_bot_mm2', 0.0))
+            fye    = ACI_FYE_FACTOR * fy
+
+            valid_cases = [
+                (i, c) for i, c in enumerate(cases)
+                if f'joint_{joint}_{axis}_Vu_kN' in c.get('joint_case', {})
+            ]
+            if not valid_cases:
+                continue
+
+            crit_idx, crit_case = max(
+                valid_cases,
+                key=lambda ic: float(ic[1]['joint_case'].get(f'joint_{joint}_{axis}_Vu_kN', 0.0)),
+            )
+            crit_Vj = float(crit_case['joint_case'].get(f'joint_{joint}_{axis}_Vu_kN', 0.0))
+            Ve_crit = abs(float(crit_case['prob_shear'].get(f'Ve_col_{axis}_kN', 0.0)))
+            Mpr_top = float(crit_case['prob_shear'].get(f'col_Mpr_top_{axis}_eff_kNm', 0.0))
+            Mpr_bot = float(crit_case['prob_shear'].get(f'col_Mpr_bot_{axis}_eff_kNm', 0.0))
+            lu_m    = float(crit_case['prob_shear'].get('lu_m', 1.0))
+            Pu_crit = float(crit_case['row'].get('Pu_kN', 0.0))
+            lc_name = str(crit_case['row'].get('load_case', ''))
+            ratio_c = crit_Vj / max(pVn, 1e-9)
+
+            story += [Spacer(1, 2*mm), Paragraph(
+                f'<b>Demand  —  critical case: {lc_name}  (Pu = {_f(Pu_crit,1)} kN)</b>',
+                _S_BODY,
+            )]
+            story += _eq_block(
+                'Tpr = max(As,top, As,bot) × 1.25fy    (beam probable tension)',
+                f'= max({_f(As_top,0)}, {_f(As_bot,0)}) mm² × 1.25 × {_f(fy,0)} MPa / 1000',
+                f'= <b>{_f(Tpr,1)} kN</b>',
+                'ACI 18.8.2.1',
+            )
+            story += _eq_block(
+                'Ve,col = (Mpr,top,eff + Mpr,bot,eff) / lu    (column probable shear)',
+                f'= ({_f(Mpr_top,1)} + {_f(Mpr_bot,1)}) kN·m / {_f(lu_m,3)} m',
+                f'= <b>{_f(Ve_crit,1)} kN</b>',
+                'ACI 18.7.6.1',
+            )
+            story += _eq_block(
+                'Vj = Tpr − Ve,col',
+                f'= {_f(Tpr,1)} − {_f(Ve_crit,1)}',
+                f'= <b>{_f(crit_Vj,1)} kN</b>',
+                'ACI 18.8.4.1',
+            )
+            story += _check_line(
+                f'Joint {joint}-{axis}',
+                f'Vj = {_f(crit_Vj,1)} kN',
+                f'≤ φVn = {_f(pVn,1)} kN  (D/C = {ratio_c:.3f})',
+                ratio_c <= 1.0,
+            )
+
+            # ── All-cases table ───────────────────────────────────────────────
+            if len(cases) > 1:
+                story += [Spacer(1, 2*mm), Paragraph('<b>All load cases</b>', _S_BODY)]
+                cws = [_INNER_W / 7.0] * 7
+                hdr_row = [
+                    Paragraph('Case',        _S_CELL_B),
+                    Paragraph('Pu [kN]',     _S_CELL_B),
+                    Paragraph('Tpr [kN]',    _S_CELL_B),
+                    Paragraph('Ve,col [kN]', _S_CELL_B),
+                    Paragraph('Vj [kN]',     _S_CELL_B),
+                    Paragraph('φVn [kN]',    _S_CELL_B),
+                    Paragraph('D/C',         _S_CELL_B),
+                ]
+                tbl_data = [hdr_row]
+                crit_row_indices: list[int] = []
+                for ci, c in enumerate(cases):
+                    Vj_c  = float(c['joint_case'].get(f'joint_{joint}_{axis}_Vu_kN', 0.0))
+                    Ve_c  = abs(float(c['prob_shear'].get(f'Ve_col_{axis}_kN', 0.0)))
+                    Tpr_c = float(c['joint_case'].get(f'joint_{joint}_{axis}_Tpr_kN', 0.0))
+                    dc_c  = Vj_c / max(pVn, 1e-9)
+                    is_c  = (ci == crit_idx)
+                    if is_c:
+                        crit_row_indices.append(ci + 1)  # +1 for header row
+                    st = _S_CELL_B if is_c else _S_CELL
+                    tbl_data.append([
+                        Paragraph(str(c['row'].get('load_case', '')), st),
+                        Paragraph(_f(c['row'].get('Pu_kN', 0.0), 1), st),
+                        Paragraph(_f(Tpr_c, 1), st),
+                        Paragraph(_f(Ve_c, 1), st),
+                        Paragraph(_f(Vj_c, 1), st),
+                        Paragraph(_f(pVn, 1), st),
+                        Paragraph(_f(dc_c, 3), st),
+                    ])
+                ts = [
+                    ('BACKGROUND',    (0, 0), (-1, 0),  _HDR_BG),
+                    ('ROWBACKGROUNDS',(0, 1), (-1, -1), [colors.white, _LGRAY]),
+                    ('GRID',          (0, 0), (-1, -1), 0.3, _MGRAY),
+                    ('TOPPADDING',    (0, 0), (-1, -1), 2),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+                    ('LEFTPADDING',   (0, 0), (-1, -1), 3),
+                    ('RIGHTPADDING',  (0, 0), (-1, -1), 3),
+                ]
+                for ri in crit_row_indices:
+                    ts.append(('BACKGROUND', (0, ri), (-1, ri), _SEC_BG))
+                tbl = Table(tbl_data, colWidths=cws)
+                tbl.setStyle(TableStyle(ts))
+                story += [tbl, Spacer(1, 2*mm)]
+
     if not any_active:
         story.append(Paragraph('No active beam-column joints in this model.', _S_BODY))
     story.append(Spacer(1, 3*mm))
@@ -1061,6 +1174,7 @@ def build_detailed_pdf_report(ctx: dict) -> bytes:
     shear_base   = ctx['shear_base']
     flexure0     = ctx['flexure0']
     joint_static = ctx['joint_static']
+    beam_static  = ctx['beam_static']
     cases        = ctx['cases']
     pm_paths     = ctx['pm_paths']
     pry_name     = ctx.get('pry_name', '')
@@ -1099,7 +1213,7 @@ def build_detailed_pdf_report(ctx: dict) -> bytes:
     story += _s6_confinement(row, geom, tr_meta)
     story += _s7_rhos(row, geom, tr_meta, cases)
     story += _s8_scwb(row, cases)
-    story += _s9_joint(row, joint_static)
+    story += _s9_joint(row, joint_static, cases, beam_static)
     story += _s10_asce41(row, geom, cases)
     story += _s11_pm_diagrams(pm_paths)
 

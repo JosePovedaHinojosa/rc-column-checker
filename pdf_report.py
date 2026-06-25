@@ -300,7 +300,7 @@ def _s_beam_capacities(beam_static: dict) -> list:
     ]
 
 
-def _s_joint(joint_static: dict) -> list:
+def _s_joint(joint_static: dict, cases: list) -> list:
     rows: list[list] = []
     for joint in ['top', 'bottom']:
         for axis in ['x', 'y']:
@@ -312,13 +312,21 @@ def _s_joint(joint_static: dict) -> list:
                 'Y' if joint_static[f'joint_{joint}_{axis}_cond_c'] else 'N',
                 'Y' if joint_static[f'joint_{joint}_{axis}_cond_d'] else 'N',
             )
+            pVn = float(joint_static[f'joint_{joint}_{axis}_phiVn_kN'])
+            Vj_crit = max(
+                (float(c['joint_case'].get(f'joint_{joint}_{axis}_Vu_kN', 0.0)) for c in cases),
+                default=0.0,
+            )
+            dc = Vj_crit / max(pVn, 1e-9)
             rows.append([
                 joint, axis,
                 _fmt(joint_static[f'joint_{joint}_{axis}_Aj_mm2'], 1),
                 _fmt(joint_static[f'joint_{joint}_{axis}_coeff'], 2),
                 'Yes' if joint_static[f'joint_{joint}_{axis}_confined'] else 'No',
                 _fmt(joint_static[f'joint_{joint}_{axis}_Vn_kN'], 1),
-                _fmt(joint_static[f'joint_{joint}_{axis}_phiVn_kN'], 1),
+                _fmt(pVn, 1),
+                _fmt(Vj_crit, 1),
+                _fmt(dc, 3),
                 conds,
             ])
     if not rows:
@@ -326,11 +334,13 @@ def _s_joint(joint_static: dict) -> list:
     header = [[
         _p('Joint', bold=True), _p('Axis', bold=True),
         _p('Aj [mm²]', bold=True), _p('αj', bold=True), _p('Conf.', bold=True),
-        _p('Vn [kN]', bold=True), _p('φVn [kN]', bold=True), _p('15.5.2.5', bold=True),
+        _p('Vn [kN]', bold=True), _p('φVn [kN]', bold=True),
+        _p('Vj,crit\n[kN]', bold=True), _p('D/C', bold=True), _p('15.5.2.5', bold=True),
     ]]
+    # total = 15+9+26+12+12+20+20+22+16+22 = 174 mm = _INNER_W
     return [
         Paragraph('Joint Shear Capacity', _S_H2),
-        _tbl(header + rows, [18*mm, 10*mm, 28*mm, 14*mm, 14*mm, 22*mm, 22*mm, 22*mm]),
+        _tbl(header + rows, [15*mm, 9*mm, 26*mm, 12*mm, 12*mm, 20*mm, 20*mm, 22*mm, 16*mm, 22*mm]),
         Spacer(1, 3 * mm),
     ]
 
@@ -566,7 +576,7 @@ def build_pdf_report(ctx: dict) -> bytes:
     if not opts.get('hide_beam_table'):
         story += _s_beam_capacities(beam_static)
     if not opts.get('hide_joint_table'):
-        story += _s_joint(joint_static)
+        story += _s_joint(joint_static, cases)
     if not opts.get('hide_rotation_table'):
         story += _s_rotation(cases)
     story += _s_load_results(cases)
