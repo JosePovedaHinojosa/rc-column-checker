@@ -1,7 +1,7 @@
 """
 rc-column-checker – Streamlit GUI
 
-Didactic interface for ACI 318-22 / ASCE 41 RC column verification.
+Didactic interface for ACI 318-25 / ASCE 41 RC column verification.
 Fills in CSV inputs interactively, runs main.py, and displays colour-coded results.
 """
 from __future__ import annotations
@@ -762,11 +762,15 @@ def tab_section() -> None:
                     cm1.metric('Total bars', n_bars)
                     cm2.metric('As [mm²]', f'{As_mm2:,.0f}')
                     cm3.metric('ρ_long', f'{rho:.4f}',
-                               help='**ACI 18.7.4.1** — Must satisfy 0.01 ≤ ρ ≤ 0.08.')
+                               help='**ACI 18.7.4.1 / 10.6.1.1** — SMF and gravity (SDC D-F) columns: '
+                                    '0.01 ≤ ρ ≤ 0.06. IMF/OMF columns: 0.01 ≤ ρ ≤ 0.08.')
                     if rho < 0.01:
-                        st.warning('⚠️ ρ < 0.01 — below ACI 18.7.4.1 minimum (1 %).')
+                        st.warning('⚠️ ρ < 0.01 — below ACI minimum (1 %).')
                     elif rho > 0.08:
-                        st.error('❌ ρ > 0.08 — exceeds ACI 18.7.4.1 maximum (8 %).')
+                        st.error('❌ ρ > 0.08 — exceeds ACI 10.6.1.1 maximum (8 %).')
+                    elif rho > 0.06:
+                        st.warning('⚠️ ρ > 0.06 — exceeds the ACI 18.7.4.1 maximum (6 %) for SMF '
+                                   'and gravity (SDC D-F) columns; only valid for IMF/OMF.')
 
                 with st.expander('🔗 Transverse Reinforcement', expanded=True):
                     c1, c2 = st.columns(2)
@@ -1498,8 +1502,10 @@ def _render_asm_identity(asm: dict, i: int, sec_ids: list[str]) -> None:
         asm['frame_type'] = c4.selectbox(
             'Frame type', frame_opts, index=ft_idx, key=f'asm_{i}_ftype',
             help=(
-                '**ACI 18 / ASCE 7** — Special Moment Frame (SMF), Intermediate (IMF), '
-                'Ordinary (OMF), or Gravity. Determines which Chapter 18 checks apply.'
+                '**ACI 318-25 Ch. 18** — SMF: 18.7/18.8 (Mpr shear, SCWB, Table 18.7.5.4 '
+                'confinement, joint φ=0.85, ρ ≤ 6%). IMF: 18.4 (Mn shear, 18.4.3.3 hoops, '
+                'joint φ=0.75 with fy demand). OMF: 18.3 (Mn shear if lu ≤ 5c1, Ch.10 ties, '
+                'Ch.15 joints). Gravity: 18.14 (SDC D-F, full-height ties, Mpr shear, ρ ≤ 6%).'
             ),
         )
         asm['clear_height_mm'] = c5.number_input(
@@ -2031,7 +2037,7 @@ def main() -> None:
     _col_title, _col_logo = st.columns([3, 1])
     with _col_title:
         st.title('RC Column Checker')
-        st.caption('ACI 318-22 / ASCE 41  ·  Interactive verification tool')
+        st.caption('ACI 318-25 / ASCE 41  ·  Interactive verification tool')
     with _col_logo:
         logo_path = ROOT / 'assets' / 'Logo_horizontal_Torrefuerte.png'
         if logo_path.exists():
@@ -2115,7 +2121,7 @@ def main() -> None:
     <br>
     <span style="font-size:0.72rem;">
         RC Column Verification Tool &mdash;
-        ACI&nbsp;318-22&nbsp;/&nbsp;ASCE&nbsp;41 &mdash; Beta version
+        ACI&nbsp;318-25&nbsp;/&nbsp;ASCE&nbsp;41 &mdash; Beta version
     </span>
 </div>
 """, unsafe_allow_html=True)

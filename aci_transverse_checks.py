@@ -8,11 +8,16 @@ from constants import (
     ACI_HIGH_AXIAL_FC_RATIO, ACI_HIGH_FC_THRESHOLD_MPA,
     ACI_HOOK_ANGLE_MIN_DEG,
     ACI_HX_GENERAL_MM, ACI_HX_SPECIAL_MM,
+    ACI_IMF_SO_CAP_G420_MM, ACI_IMF_SO_CAP_G550_MM,
+    ACI_IMF_SO_DB_FACTOR_G420, ACI_IMF_SO_DB_FACTOR_G550, ACI_IMF_SO_MIN_DIM_FACTOR,
     ACI_LO_MIN_MM, ACI_LO_HEIGHT_DIVISOR,
     ACI_RHO_S_CIRC_D, ACI_RHO_S_CIRC_E, ACI_RHO_S_CIRC_F,
     ACI_RHO_S_RECT_A, ACI_RHO_S_RECT_B, ACI_RHO_S_RECT_C,
+    ACI_SHEAR_TIE_SPACING_CAP_MM,
     ACI_SO_MAX_MM, ACI_SO_MIN_MM,
+    ACI_TIE_SPACING_16DB, ACI_TIE_SPACING_48DBT,
 )
+from frame_types import GRAVITY, IMF, OMF, frame_class
 
 
 def add_check(results, column_id, load_case, check_name, ok, provided, required, message, code_ref=''):
@@ -74,8 +79,15 @@ def calc_kn(n_lateral_supported_bars: int) -> float:
     return n / (n - 2.0)
 
 
-def _is_gravity_frame(row: Dict[str, object]) -> bool:
-    return str(row.get('frame_type', '')).strip().upper().startswith('G')
+def _sdc_consistency_check(results, cid, load_case, fclass: str, sdc: str) -> None:
+    """ACI 18.2.1.1: minimum SFRS frame type by seismic design category —
+    SDC B allows OMF, SDC C requires at least IMF, SDC D/E/F require SMF."""
+    if fclass == OMF and sdc in {'C', 'D', 'E', 'F'}:
+        add_warning(results, cid, load_case, 'sdc_frame_type_consistency', f'OMF in SDC {sdc}', 'OMF permitted only in SDC B', 'Ordinary moment frames are not permitted as the SFRS in this seismic design category.', 'ACI 18.2.1.1')
+    elif fclass == IMF and sdc in {'D', 'E', 'F'}:
+        add_warning(results, cid, load_case, 'sdc_frame_type_consistency', f'IMF in SDC {sdc}', 'IMF permitted only up to SDC C', 'Intermediate moment frames are not permitted as the SFRS in this seismic design category.', 'ACI 18.2.1.1')
+    else:
+        add_info(results, cid, load_case, 'sdc_frame_type_consistency', f'{fclass} in SDC {sdc}', 'Frame type is consistent with the seismic design category.', 'ACI 18.2.1.1')
 
 
 def _table_18_7_5_4_rect_parts(row: Dict[str, object], geom: Dict[str, object]) -> tuple[float, float, float]:
@@ -87,8 +99,9 @@ def _table_18_7_5_4_rect_parts(row: Dict[str, object], geom: Dict[str, object]) 
     kf = calc_kf(fc)
     kn = calc_kn(int(geom['n_lateral_supported_bars']))
 
-    expr_a = ACI_RHO_S_RECT_A * max(Ag / max(Ach, 1e-9) - 1.0, 0.0) * (fc / max(fyt, 1e-9)) * kf * kn
-    expr_b = ACI_RHO_S_RECT_B * (fc / max(fyt, 1e-9)) * kf * kn
+    # Table 18.7.5.4: kf and kn appear only in expression (c).
+    expr_a = ACI_RHO_S_RECT_A * max(Ag / max(Ach, 1e-9) - 1.0, 0.0) * (fc / max(fyt, 1e-9))
+    expr_b = ACI_RHO_S_RECT_B * (fc / max(fyt, 1e-9))
     expr_c = ACI_RHO_S_RECT_C * kf * kn * Pu_N / max(fyt * Ach, 1e-9)
     return expr_a, expr_b, expr_c
 
@@ -100,12 +113,13 @@ def _table_18_7_5_4_circ_parts(row: Dict[str, object], geom: Dict[str, object]) 
     Ach = float(geom['Ach_mm2'])
     Pu_N = float(row['Pu_kN']) * 1e3
     kf = calc_kf(fc)
-    kn = calc_kn(int(geom['n_lateral_supported_bars']))
 
+    # Table 18.7.5.4: kf appears only in expression (f); kn applies to none of the
+    # spiral/circular-hoop expressions.
     expr_d = ACI_RHO_S_CIRC_D * max(Ag / max(Ach, 1e-9) - 1.0, 0.0) * (fc / max(fyt, 1e-9))
     expr_e = ACI_RHO_S_CIRC_E * (fc / max(fyt, 1e-9))
-    expr_f = ACI_RHO_S_CIRC_F * Pu_N / max(fyt * Ach, 1e-9)
-    return expr_d * kf * kn, expr_e * kf * kn, expr_f * kf * kn
+    expr_f = ACI_RHO_S_CIRC_F * kf * Pu_N / max(fyt * Ach, 1e-9)
+    return expr_d, expr_e, expr_f
 
 
 def required_transverse_ratio(row: Dict[str, object], geom: Dict[str, object]) -> float:
@@ -157,11 +171,12 @@ def transverse_checks(row: Dict[str, object], geom: Dict[str, object]) -> tuple[
     fc = float(row['fc_MPa'])
     Ag = float(geom['Ag_mm2'])
     Pu_N = float(row['Pu_kN']) * 1e3
-    frame_is_gravity = _is_gravity_frame(row)
+    fclass = frame_class(row)
     sdc = str(row.get('seismic_design_category', 'D')).strip().upper()
     gravity_actions_checked = bool(row.get('gravity_design_actions_checked', True))
     addl_cov = float(row.get('cover_additional_transverse_cover_mm', 999.0))
     addl_sp = float(row.get('cover_additional_transverse_spacing_mm', 999.0))
+    cover = float(row.get('cover_mm', 0.0))
 
     lo_x = calc_lo_mm(h, clear_height)
     lo_y = calc_lo_mm(b, clear_height)
@@ -177,17 +192,71 @@ def transverse_checks(row: Dict[str, object], geom: Dict[str, object]) -> tuple[
     rho_s_y = float(geom['rho_s_y'])
     trigger_high = (Pu_N > ACI_HIGH_AXIAL_FC_RATIO * Ag * fc) or (fc > ACI_HIGH_FC_THRESHOLD_MPA)
 
+    _sdc_consistency_check(results, cid, load_case, fclass, sdc)
+
+    # General tie spacing and tie size for any tied column (baseline Chapter 10 rules)
+    smax_general = min(ACI_TIE_SPACING_16DB * db_long, ACI_TIE_SPACING_48DBT * tie_db, min_dim)
+    tie_db_min_general = 9.5 if db_long <= 33.0 else 12.7   # No.10 for <= No.32, No.13 for >= No.36 (ACI 25.7.2.2)
+
+    if fclass == OMF:
+        # OMF columns have no Chapter 18 detailing beyond the shear provision (18.3.3,
+        # handled per load case in main.py). Transverse reinforcement follows the
+        # general Chapter 10 / 25.7.2 rules over the full column height.
+        add_info(results, cid, load_case, 'omf_column_mode', 'ACI 18.3', 'Ordinary moment frame branch enabled from frame_type; ties per Chapter 10 / 25.7.2 apply full height.', 'ACI 18.3.1.1')
+        add_check(results, cid, load_case, 'omf_tie_spacing', tie_spacing_lo <= smax_general, round(tie_spacing_lo, 1), f'<= {smax_general:.1f} mm', 'Tie spacing (end regions input) vs min(16db, 48dbt, least dimension).', 'ACI 25.7.2.1(b)')
+        add_check(results, cid, load_case, 'omf_tie_spacing_midheight', tie_spacing_out <= smax_general, round(tie_spacing_out, 1), f'<= {smax_general:.1f} mm', 'Tie spacing (mid-height input) vs min(16db, 48dbt, least dimension).', 'ACI 25.7.2.1(b)')
+        add_check(results, cid, load_case, 'omf_tie_diameter', tie_db >= tie_db_min_general, tie_db, f'>= {tie_db_min_general} mm', 'Minimum tie bar diameter for the enclosed longitudinal bar size.', 'ACI 25.7.2.2')
+        meta = {
+            'lo_x_mm': 0.0, 'lo_y_mm': 0.0,
+            'smax_lo_mm': smax_general, 'smax_outside_lo_mm': smax_general,
+            'tie_spacing_lo_mm': tie_spacing_lo, 'tie_spacing_outside_lo_mm': tie_spacing_out,
+            'rho_s_req': 0.0, 'rho_s_x': rho_s_x, 'rho_s_y': rho_s_y,
+            'so_eq_mm': so_eq, 'kn': calc_kn(int(geom['n_lateral_supported_bars'])), 'kf': calc_kf(fc),
+            'frame_branch': 'OMF', 'po_nominal_kN': _po_nominal_kN(row, geom), 'gravity_trigger_0_35Po': False,
+        }
+        return results, meta
+
+    if fclass == IMF:
+        # IMF columns: hoops over lo at both ends (18.4.3.3), general rules elsewhere.
+        lo_imf = max(clear_height / ACI_LO_HEIGHT_DIVISOR, max(b, h), ACI_LO_MIN_MM)
+        if fy_long <= 420.0:
+            so_grade = min(ACI_IMF_SO_DB_FACTOR_G420 * db_long, ACI_IMF_SO_CAP_G420_MM)
+            so_grade_label = f'min(8db={ACI_IMF_SO_DB_FACTOR_G420 * db_long:.0f}, 200)'
+        else:
+            so_grade = min(ACI_IMF_SO_DB_FACTOR_G550 * db_long, ACI_IMF_SO_CAP_G550_MM)
+            so_grade_label = f'min(6db={ACI_IMF_SO_DB_FACTOR_G550 * db_long:.0f}, 150)'
+        smax_lo_imf = min(so_grade, ACI_IMF_SO_MIN_DIM_FACTOR * min_dim)
+        # Outside lo: Table 10.7.6.5.2 (low-Vs branch, conservative) + general tie rules.
+        d_eff_min = max(min_dim - cover, 0.0)
+        smax_out_imf = min(d_eff_min / 2.0, ACI_SHEAR_TIE_SPACING_CAP_MM, smax_general)
+
+        add_info(results, cid, load_case, 'imf_column_mode', 'ACI 18.4.3', 'Intermediate moment frame branch enabled from frame_type.', 'ACI 18.4.1.1')
+        add_check(results, cid, load_case, 'imf_lo_length', lo_imf >= ACI_LO_MIN_MM, round(lo_imf, 1), '>= max(lclear/6, max(b,h), 450)', 'Hoop region length lo measured from each joint face.', 'ACI 18.4.3.3(d)-(f)')
+        add_check(results, cid, load_case, 'imf_hoop_spacing_within_lo', tie_spacing_lo <= smax_lo_imf, round(tie_spacing_lo, 1), f'<= {smax_lo_imf:.1f} mm', f'Hoop spacing so within lo: {so_grade_label} and min_dim/2.', 'ACI 18.4.3.3(a)-(c)')
+        add_check(results, cid, load_case, 'imf_hook_angle_hoops', hook_angle >= ACI_HOOK_ANGLE_MIN_DEG, hook_angle, f'>= {ACI_HOOK_ANGLE_MIN_DEG:.0f} deg', 'Hoops require seismic hooks at both ends.', 'ACI 18.4.3.3 / 25.7.4')
+        add_check(results, cid, load_case, 'imf_tie_spacing_outside_lo', tie_spacing_out <= smax_out_imf or bool(row['spiral_provided']), round(tie_spacing_out, 1), f'<= {smax_out_imf:.1f} mm', 'Spacing outside lo per Table 10.7.6.5.2 (d/2 branch) and 25.7.2.1(b).', 'ACI 18.4.3.5 / 10.7.6.5.2')
+        add_check(results, cid, load_case, 'imf_tie_diameter', tie_db >= tie_db_min_general, tie_db, f'>= {tie_db_min_general} mm', 'Minimum tie bar diameter for the enclosed longitudinal bar size.', 'ACI 25.7.2.2')
+        meta = {
+            'lo_x_mm': lo_imf, 'lo_y_mm': lo_imf,
+            'smax_lo_mm': smax_lo_imf, 'smax_outside_lo_mm': smax_out_imf,
+            'tie_spacing_lo_mm': tie_spacing_lo, 'tie_spacing_outside_lo_mm': tie_spacing_out,
+            'rho_s_req': 0.0, 'rho_s_x': rho_s_x, 'rho_s_y': rho_s_y,
+            'so_eq_mm': so_eq, 'kn': calc_kn(int(geom['n_lateral_supported_bars'])), 'kf': calc_kf(fc),
+            'frame_branch': 'IMF', 'po_nominal_kN': _po_nominal_kN(row, geom), 'gravity_trigger_0_35Po': False,
+        }
+        return results, meta
+
     add_check(results, cid, load_case, 'lo_x_length', lo_x >= 450.0, round(lo_x, 1), '>= max(h, lclear/6, 450)', 'Special confining reinforcement length in x.', 'ACI 18.7.5.1')
     add_check(results, cid, load_case, 'lo_y_length', lo_y >= 450.0, round(lo_y, 1), '>= max(b, lclear/6, 450)', 'Special confining reinforcement length in y.', 'ACI 18.7.5.1')
 
-    cover_trigger = float(row.get('cover_mm', 0.0)) > 100.0
+    cover_trigger = cover > 100.0
     if cover_trigger:
         add_check(results, cid, load_case, 'cover_additional_transverse_cover', addl_cov <= 100.0, round(addl_cov, 1), '<= 100 mm', 'Additional transverse reinforcement cover outside confining reinforcement.', 'ACI 18.7.5.7')
         add_check(results, cid, load_case, 'cover_additional_transverse_spacing', addl_sp <= 300.0, round(addl_sp, 1), '<= 300 mm', 'Additional transverse reinforcement spacing outside confining reinforcement.', 'ACI 18.7.5.7')
     else:
-        add_info(results, cid, load_case, 'cover_additional_transverse_not_required', f"cover={float(row.get('cover_mm', 0.0)):.1f} mm", 'Concrete cover outside confining transverse reinforcement does not exceed 100 mm.', 'ACI 18.7.5.7')
+        add_info(results, cid, load_case, 'cover_additional_transverse_not_required', f"cover={cover:.1f} mm", 'Concrete cover outside confining transverse reinforcement does not exceed 100 mm.', 'ACI 18.7.5.7')
 
-    if frame_is_gravity:
+    if fclass == GRAVITY:
         po_kN = _po_nominal_kN(row, geom)
         gravity_trigger = max(float(row['Pu_kN']), 0.0) > ACI_GRAVITY_AXIAL_TRIGGER * po_kN
         gravity_rho_req = _gravity_half_table_ratio(row, geom) if gravity_trigger else 0.0

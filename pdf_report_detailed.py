@@ -3,7 +3,7 @@ pdf_report_detailed.py
 ======================
 Educational step-by-step PDF report.
 Shows every major calculation with its symbolic equation, substituted values,
-and numeric result — intended for students learning ACI 318-22 / ASCE 41.
+and numeric result — intended for students learning ACI 318-25 / ASCE 41.
 
 Entry point
 -----------
@@ -58,6 +58,8 @@ from constants import (
     ASCE41_THETA_LS_FACTOR, ASCE41_THETA_CP_FACTOR,
     ASCE41_FYE_DEFAULT, ASCE41_FYTE_DEFAULT,
 )
+from constants import ACI_RHO_LONG_MAX_SMF
+from frame_types import GRAVITY, IMF, OMF, SMF, frame_class
 
 # ── Unicode font ──────────────────────────────────────────────────────────────
 def _register_fonts() -> tuple[str, str]:
@@ -323,11 +325,18 @@ def _s2_geometry(row: dict, geom: dict) -> list:
 
     story += [Paragraph('Longitudinal reinforcement ratio', _S_H3)]
     rho = float(geom['rho_long'])
+    _fclass = frame_class(row)
+    if _fclass in (SMF, GRAVITY):
+        rho_lim_txt = f'0.01 ≤ ρ ≤ {ACI_RHO_LONG_MAX_SMF}'
+        rho_ref = 'ACI 18.7.4.1' if _fclass == SMF else 'ACI 18.14.3.2(b) / 18.7.4.1'
+    else:
+        rho_lim_txt = '0.01 ≤ ρ ≤ 0.08'
+        rho_ref = 'ACI 10.6.1.1'
     story += _eq_block(
         'ρ_long = As / Ag',
         f'= {_f(As,1)} / {_f(Ag,0)}',
-        f'= <b>{rho:.5f}</b>  (ACI 18.7.4.1 requires 0.01 ≤ ρ ≤ 0.08)',
-        'ACI 18.7.4.1',
+        f'= <b>{rho:.5f}</b>  ({rho_ref} requires {rho_lim_txt})',
+        rho_ref,
         note=f'Longitudinal bar offset from outer face: d\' = cover + dbt + db/2 = {_f(off,1)} mm',
     )
 
@@ -586,31 +595,94 @@ def _s5_shear(row: dict, geom: dict, shear_base: dict, cases: list) -> list:
         'ACI Table 21.2.1(c)',
     )
 
-    story += [Paragraph('ACI 18.7.6.2.1 — Vc = 0 rule', _S_H3)]
-    story += [Paragraph(
-        "Vc shall be taken as zero when both conditions (a) and (b) apply:<br/>"
-        f"(a) The earthquake-induced shear Ve ≥ 0.5·Vu_design;<br/>"
-        f"(b) Pu,factored &lt; Ag·f'c / {ACI_VC_ZERO_AXIAL_DIVISOR:.0f}.",
-        _S_BODY,
-    )]
+    _fclass = frame_class(row)
+    if _fclass in (SMF, GRAVITY):
+        story += [Paragraph('ACI 18.7.6.2.1 — Vc = 0 rule', _S_H3)]
+        story += [Paragraph(
+            "Vc shall be taken as zero when both conditions (a) and (b) apply:<br/>"
+            f"(a) The earthquake-induced shear Ve ≥ 0.5·Vu_design;<br/>"
+            f"(b) Pu,factored &lt; Ag·f'c / {ACI_VC_ZERO_AXIAL_DIVISOR:.0f}.",
+            _S_BODY,
+        )]
+    else:
+        story += [Paragraph(
+            'The Vc = 0 rule (ACI 18.7.6.2.1) applies to SMF and gravity columns only; '
+            'it is not invoked by ACI 18.3 (OMF) or 18.4 (IMF).',
+            _S_NOTE,
+        )]
 
-    story += [Paragraph('Probable seismic shear (Ve) — representative case', _S_H3)]
     rep = max(cases, key=lambda c: float(c['row']['Pu_kN']), default=None)
     if rep:
         ps = rep['prob_shear']
-        story += _eq_block(
-            'Ve = (Mpr,top + Mpr,bot) / ℓu',
-            f'= ({_f(ps["col_Mpr_top_x_eff_kNm"],1)} + {_f(ps["col_Mpr_bot_x_eff_kNm"],1)}) / {_f(ps["lu_m"],2)} m',
-            f'= <b>{_f(ps["Ve_col_x_kN"],1)} kN</b>  (axis x)',
-            'ACI 18.7.6.1',
-            note='Mpr values are limited by connected beam joint Mpr when beams are present.',
-        )
+        if _fclass in (SMF, GRAVITY):
+            story += [Paragraph('Probable seismic shear (Ve) — representative case', _S_H3)]
+            story += _eq_block(
+                'Ve = (Mpr,top + Mpr,bot) / ℓu',
+                f'= ({_f(ps["col_Mpr_top_x_eff_kNm"],1)} + {_f(ps["col_Mpr_bot_x_eff_kNm"],1)}) / {_f(ps["lu_m"],2)} m',
+                f'= <b>{_f(ps["Ve_col_x_kN"],1)} kN</b>  (axis x)',
+                'ACI 18.7.6.1',
+                note='Mpr values are limited by connected beam joint Mpr when beams are present.',
+            )
+        else:
+            ve_ref = 'ACI 18.4.3.1(a)' if _fclass == IMF else 'ACI 18.3.3(a)'
+            story += [Paragraph('Nominal-strength hinging shear (Ve) — representative case', _S_H3)]
+            story += _eq_block(
+                'Ve = (Mn,top + Mn,bot) / ℓu',
+                f'= ({_f(ps["col_Mn_top_x_kNm"],1)} + {_f(ps["col_Mn_bot_x_kNm"],1)}) / {_f(ps["lu_m"],2)} m',
+                f'= <b>{_f(ps["Ve_col_Mn_x_kN"],1)} kN</b>  (axis x)',
+                ve_ref,
+                note='OMF: required only for columns with lu ≤ 5·c1 (ACI 18.3.3).' if _fclass == OMF else '',
+            )
 
     story.append(Spacer(1, 3*mm))
     return story
 
 
 def _s6_confinement(row: dict, geom: dict, tr_meta: dict) -> list:
+    branch = str(tr_meta.get('frame_branch', 'SMF'))
+    if branch == 'OMF':
+        story = _section_header('6  |  Tie Spacing  —  ACI 25.7.2 (Ordinary Moment Frame)')
+        smax = float(tr_meta['smax_lo_mm'])
+        s_lo = float(row['tie_spacing_lo_mm'])
+        s_out = float(row['tie_spacing_outside_lo_mm'])
+        story += [Paragraph(
+            'OMF columns have no Chapter 18 confinement region; ties follow the general '
+            'Chapter 10 / 25.7.2 rules over the full height: s ≤ min(16db, 48dbt, least dimension).',
+            _S_BODY,
+        )]
+        story += _check_line('Tie spacing (end regions)', f's = {_f(s_lo,0)} mm', f'≤ {_f(smax,0)} mm', s_lo <= smax)
+        story += _check_line('Tie spacing (mid-height)', f's = {_f(s_out,0)} mm', f'≤ {_f(smax,0)} mm', s_out <= smax)
+        story.append(Spacer(1, 3*mm))
+        return story
+    if branch == 'IMF':
+        story = _section_header('6  |  Hoop Region ℓo and Spacing  —  ACI 18.4.3.3 (Intermediate Moment Frame)')
+        lo = float(tr_meta['lo_x_mm'])
+        smax_lo = float(tr_meta['smax_lo_mm'])
+        smax_out = float(tr_meta['smax_outside_lo_mm'])
+        s_lo = float(row['tie_spacing_lo_mm'])
+        s_out = float(row['tie_spacing_outside_lo_mm'])
+        fyl = float(row['fy_long_MPa'])
+        db = float(row['bar_db_mm'])
+        grade_txt = f'min(8db = {_f(8*db,0)}, 200)' if fyl <= 420.0 else f'min(6db = {_f(6*db,0)}, 150)'
+        story += _eq_block(
+            'ℓo = max(ℓclear/6, max(b, h), 450 mm)',
+            f"= max({_f(float(row['clear_height_mm'])/6,0)}, {_f(max(float(row['b_mm']), float(row['h_mm'])),0)}, 450)",
+            f'= <b>{_f(lo,0)} mm</b>',
+            'ACI 18.4.3.3(d)-(f)',
+        )
+        story += [Paragraph(
+            f'Hoop spacing within ℓo: so ≤ min({grade_txt}, min_dim/2) = <b>{_f(smax_lo,0)} mm</b>.',
+            _S_BODY,
+        )]
+        story += _check_line('Spacing within ℓo', f's = {_f(s_lo,0)} mm', f'≤ {_f(smax_lo,0)} mm', s_lo <= smax_lo)
+        story += _check_line(
+            'Spacing outside ℓo', f's = {_f(s_out,0)} mm',
+            f'≤ {_f(smax_out,0)} mm  (Table 10.7.6.5.2 / 25.7.2.1)',
+            s_out <= smax_out,
+        )
+        story.append(Spacer(1, 3*mm))
+        return story
+
     story = _section_header('6  |  Confinement Region ℓo and Tie Spacing  —  ACI 18.7.5')
     b   = float(row['b_mm'])
     h   = float(row['h_mm'])
@@ -667,6 +739,21 @@ def _s6_confinement(row: dict, geom: dict, tr_meta: dict) -> list:
 
 
 def _s7_rhos(row: dict, geom: dict, tr_meta: dict, cases: list) -> list:
+    branch = str(tr_meta.get('frame_branch', 'SMF'))
+    if branch in ('IMF', 'OMF'):
+        story = _section_header('7  |  Minimum Transverse Reinforcement  —  ACI Table 18.7.5.4')
+        story += [Paragraph(
+            f'Not required for {branch} columns. The Table 18.7.5.4 minimum transverse '
+            'reinforcement ratio applies to columns of special moment frames (18.7.5.4) '
+            'and, at half the (a)/(b) amounts, to gravity columns with Pu &gt; 0.35Po '
+            '(18.14.3.2(c)). '
+            + ('IMF columns are governed by the hoop spacing rules of 18.4.3.3 shown in Section 6.'
+               if branch == 'IMF' else
+               'OMF columns are governed by the general tie rules of 25.7.2 shown in Section 6.'),
+            _S_BODY,
+        ), Spacer(1, 3*mm)]
+        return story
+
     story = _section_header('7  |  Minimum Transverse Reinforcement  —  ACI Table 18.7.5.4')
     fc   = float(row['fc_MPa'])
     fyt  = float(row['fy_trans_MPa'])
@@ -705,22 +792,22 @@ def _s7_rhos(row: dict, geom: dict, tr_meta: dict, cases: list) -> list:
         'ACI Table 18.7.5.4',
     )
 
-    expr_a = ACI_RHO_S_RECT_A * max(Ag/max(Ach,1e-9)-1, 0) * (fc/max(fyt,1e-9)) * kf * kn
-    expr_b = ACI_RHO_S_RECT_B * (fc/max(fyt,1e-9)) * kf * kn
+    expr_a = ACI_RHO_S_RECT_A * max(Ag/max(Ach,1e-9)-1, 0) * (fc/max(fyt,1e-9))
+    expr_b = ACI_RHO_S_RECT_B * (fc/max(fyt,1e-9))
     expr_c = ACI_RHO_S_RECT_C * kf * kn * Pu_N / max(fyt*Ach, 1e-9)
 
     story += [Paragraph('Expression (a)', _S_H3)]
     story += _eq_block(
-        "ρs,(a) = 0.3·(Ag/Ach − 1)·(f'c/fyt)·kf·kn",
-        f"= 0.3×({_f(Ag,0)}/{_f(Ach,0)}−1)×({_f(fc,1)}/{_f(fyt,0)})×{_f(kf,4)}×{_f(kn,4)}",
+        "ρs,(a) = 0.3·(Ag/Ach − 1)·(f'c/fyt)",
+        f"= 0.3×({_f(Ag,0)}/{_f(Ach,0)}−1)×({_f(fc,1)}/{_f(fyt,0)})",
         f'= <b>{expr_a:.6f}</b>',
         'ACI Table 18.7.5.4(a)',
     )
 
     story += [Paragraph('Expression (b)', _S_H3)]
     story += _eq_block(
-        "ρs,(b) = 0.09·(f'c/fyt)·kf·kn",
-        f"= 0.09×({_f(fc,1)}/{_f(fyt,0)})×{_f(kf,4)}×{_f(kn,4)}",
+        "ρs,(b) = 0.09·(f'c/fyt)",
+        f"= 0.09×({_f(fc,1)}/{_f(fyt,0)})",
         f'= <b>{expr_b:.6f}</b>',
         'ACI Table 18.7.5.4(b)',
     )
@@ -749,6 +836,17 @@ def _s7_rhos(row: dict, geom: dict, tr_meta: dict, cases: list) -> list:
 
 def _s8_scwb(row: dict, cases: list) -> list:
     story = _section_header('8  |  Strong Column – Weak Beam  —  ACI 18.7.3.2')
+    _fclass = frame_class(row)
+    if _fclass != SMF:
+        label = {IMF: 'intermediate moment frames (ACI 18.4)',
+                 OMF: 'ordinary moment frames (ACI 18.3)',
+                 GRAVITY: 'members not designated as part of the SFRS (ACI 18.14)'}[_fclass]
+        story += [Paragraph(
+            f'Not required. The strong-column/weak-beam provision (18.7.3.2) applies only to '
+            f'columns of special moment frames; this column belongs to {label}.',
+            _S_BODY,
+        ), Spacer(1, 3*mm)]
+        return story
     story += [Paragraph(
         'ACI 18.7.3.2 requires that at each beam-column joint the sum of the nominal '
         'flexural strengths of the columns exceeds the sum of the nominal flexural '
@@ -801,11 +899,27 @@ def _s8_scwb(row: dict, cases: list) -> list:
 
 
 def _s9_joint(row: dict, joint_static: dict, cases: list, beam_static: dict) -> list:
-    story = _section_header('9  |  Joint Shear Capacity & Demand  —  ACI 18.8.4')
+    _fclass = frame_class(row)
+    smf = _fclass == SMF
+    phi_j = float(joint_static.get('phi_joint', ACI_PHI_JOINT))
+    table_ref = str(joint_static.get('joint_table_ref', 'ACI Table 18.8.4.3'))
+    phi_ref = str(joint_static.get('joint_phi_ref', 'ACI 21.2.4.4'))
+    if smf:
+        section_ref = 'ACI 18.8.4'
+        T_sym, T_fy_txt = 'Tpr', '1.25fy'
+        ve_sym_txt = 'Ve,col = (Mpr,top,eff + Mpr,bot,eff) / lu'
+        demand_ref, ve_ref = 'ACI 18.8.2.1 / 18.8.4.1', 'ACI 18.7.6.1'
+    else:
+        section_ref = {IMF: 'ACI 18.4.4.7', OMF: 'ACI 18.3.4 / 15.5', GRAVITY: 'ACI 18.14.3.2(d) / 15.5'}[_fclass]
+        T_sym, T_fy_txt = 'Tn', 'fy'
+        ve_sym_txt = 'Ve,col = (Mn,top,eff + Mn,bot,eff) / lu'
+        demand_ref = {IMF: 'ACI 18.4.4.7.2 / 18.3.4', OMF: 'ACI 18.3.4', GRAVITY: 'ACI 15.4.2.1(b)'}[_fclass]
+        ve_ref = 'ACI 18.3.4'
+    story = _section_header(f'9  |  Joint Shear Capacity & Demand  —  {section_ref}')
     story += [Paragraph(
-        'Capacity: Vn = αj · √f\'c · Aj  (ACI 15.4.2.1, φ = 0.85).  '
-        'Demand: Vj = Tpr,beams − Ve,col  (ACI 18.8.2.1 / 18.8.4.1).  '
-        'Tpr uses 1.25fy; Ve,col = (Mpr,top,eff + Mpr,bot,eff) / lu.',
+        f'Capacity: Vn = αj · √f\'c · Aj  ({table_ref}, φ = {phi_j} per {phi_ref}).  '
+        f'Demand: Vj = {T_sym},beams − Ve,col  ({demand_ref}).  '
+        f'{T_sym} uses {T_fy_txt}; {ve_sym_txt}.',
         _S_BODY,
     ), Spacer(1, 2*mm)]
 
@@ -845,21 +959,22 @@ def _s9_joint(row: dict, joint_static: dict, cases: list, beam_static: dict) -> 
                 "Vn = αj · √f'c · Aj",
                 f'= {coeff} × √{_f(fc,1)} × {_f(Aj,0)} / 1000',
                 f'= <b>{_f(Vn,1)} kN</b>',
-                'ACI 15.4.2.1',
+                table_ref,
             )
             story += _eq_block(
-                f'φVn = {ACI_PHI_JOINT} · Vn',
-                f'= {ACI_PHI_JOINT} × {_f(Vn,1)}',
+                f'φVn = {phi_j} · Vn',
+                f'= {phi_j} × {_f(Vn,1)}',
                 f'= <b>{_f(pVn,1)} kN</b>',
-                'ACI Table 21.2.1(d)',
+                phi_ref,
             )
 
             # ── Demand ───────────────────────────────────────────────────────
-            # Tpr is constant (depends only on beam geometry, not load)
-            Tpr    = float(beam_static.get(f'beam_{joint}_{axis}_joint_Tpr_kN', 0.0))
+            # Joint tension is constant (depends only on beam geometry, not load)
+            T_key = 'joint_Tpr' if smf else 'joint_Tn'
+            T_val  = float(beam_static.get(f'beam_{joint}_{axis}_{T_key}_kN', 0.0))
             As_top = float(beam_static.get(f'beam_{joint}_{axis}_As_top_mm2', 0.0))
             As_bot = float(beam_static.get(f'beam_{joint}_{axis}_As_bot_mm2', 0.0))
-            fye    = ACI_FYE_FACTOR * fy
+            fy_factor_txt = '1.25' if smf else '1.0'
 
             valid_cases = [
                 (i, c) for i, c in enumerate(cases)
@@ -873,9 +988,13 @@ def _s9_joint(row: dict, joint_static: dict, cases: list, beam_static: dict) -> 
                 key=lambda ic: float(ic[1]['joint_case'].get(f'joint_{joint}_{axis}_Vu_kN', 0.0)),
             )
             crit_Vj = float(crit_case['joint_case'].get(f'joint_{joint}_{axis}_Vu_kN', 0.0))
-            Ve_crit = abs(float(crit_case['prob_shear'].get(f'Ve_col_{axis}_kN', 0.0)))
-            Mpr_top = float(crit_case['prob_shear'].get(f'col_Mpr_top_{axis}_eff_kNm', 0.0))
-            Mpr_bot = float(crit_case['prob_shear'].get(f'col_Mpr_bot_{axis}_eff_kNm', 0.0))
+            Ve_crit = float(crit_case['joint_case'].get(f'joint_{joint}_{axis}_Ve_col_kN', 0.0))
+            if smf:
+                M_top = float(crit_case['prob_shear'].get(f'col_Mpr_top_{axis}_eff_kNm', 0.0))
+                M_bot = float(crit_case['prob_shear'].get(f'col_Mpr_bot_{axis}_eff_kNm', 0.0))
+            else:
+                M_top = float(crit_case['prob_shear'].get(f'col_Mn_top_{axis}_eff_kNm', 0.0))
+                M_bot = float(crit_case['prob_shear'].get(f'col_Mn_bot_{axis}_eff_kNm', 0.0))
             lu_m    = float(crit_case['prob_shear'].get('lu_m', 1.0))
             Pu_crit = float(crit_case['row'].get('Pu_kN', 0.0))
             lc_name = str(crit_case['row'].get('load_case', ''))
@@ -885,34 +1004,34 @@ def _s9_joint(row: dict, joint_static: dict, cases: list, beam_static: dict) -> 
                 f'<b>Demand  —  critical case: {lc_name}  (Pu = {_f(Pu_crit,1)} kN)</b>',
                 _S_BODY,
             )]
-            scen_a = float(beam_static.get(f'beam_{joint}_{axis}_joint_Tpr_scen_a_kN', 0.0))
-            scen_b = float(beam_static.get(f'beam_{joint}_{axis}_joint_Tpr_scen_b_kN', 0.0))
+            scen_a = float(beam_static.get(f'beam_{joint}_{axis}_{T_key}_scen_a_kN', 0.0))
+            scen_b = float(beam_static.get(f'beam_{joint}_{axis}_{T_key}_scen_b_kN', 0.0))
             n_sides = int(beam_static.get(f'beam_{joint}_{axis}_n_active', 1))
             if n_sides == 2:
                 story += _eq_block(
-                    'Tpr = max(T_neg,s1 + T_pos,s2 ; T_pos,s1 + T_neg,s2)    (critical seismic scenario)',
+                    f'{T_sym} = max(T_neg,s1 + T_pos,s2 ; T_pos,s1 + T_neg,s2)    (critical seismic scenario)',
                     f'Scen. A (s1 hogs + s2 sags) = {_f(scen_a,1)} kN  |  Scen. B (s1 sags + s2 hogs) = {_f(scen_b,1)} kN',
-                    f'= <b>{_f(Tpr,1)} kN</b>',
-                    'ACI 18.8.2.1 / 18.8.4.1',
+                    f'= <b>{_f(T_val,1)} kN</b>',
+                    demand_ref,
                 )
             else:
                 story += _eq_block(
-                    'Tpr = max(As,top, As,bot) × 1.25fy    (one-sided joint, critical direction)',
-                    f'= max({_f(As_top,0)}, {_f(As_bot,0)}) mm² × 1.25 × {_f(fy,0)} / 1000',
-                    f'= <b>{_f(Tpr,1)} kN</b>',
-                    'ACI 18.8.2.1',
+                    f'{T_sym} = max(As,top, As,bot) × {T_fy_txt}    (one-sided joint, critical direction)',
+                    f'= max({_f(As_top,0)}, {_f(As_bot,0)}) mm² × {fy_factor_txt} × {_f(fy,0)} / 1000',
+                    f'= <b>{_f(T_val,1)} kN</b>',
+                    demand_ref,
                 )
             story += _eq_block(
-                'Ve,col = (Mpr,top,eff + Mpr,bot,eff) / lu    (column probable shear)',
-                f'= ({_f(Mpr_top,1)} + {_f(Mpr_bot,1)}) kN·m / {_f(lu_m,3)} m',
+                ve_sym_txt + ('    (column probable shear)' if smf else '    (column shear consistent with Mn)'),
+                f'= ({_f(M_top,1)} + {_f(M_bot,1)}) kN·m / {_f(lu_m,3)} m',
                 f'= <b>{_f(Ve_crit,1)} kN</b>',
-                'ACI 18.7.6.1',
+                ve_ref,
             )
             story += _eq_block(
-                'Vj = Tpr − Ve,col',
-                f'= {_f(Tpr,1)} − {_f(Ve_crit,1)}',
+                f'Vj = {T_sym} − Ve,col',
+                f'= {_f(T_val,1)} − {_f(Ve_crit,1)}',
                 f'= <b>{_f(crit_Vj,1)} kN</b>',
-                'ACI 18.8.4.1',
+                demand_ref,
             )
             story += _check_line(
                 f'Joint {joint}-{axis}',
@@ -928,7 +1047,7 @@ def _s9_joint(row: dict, joint_static: dict, cases: list, beam_static: dict) -> 
                 hdr_row = [
                     Paragraph('Case',        _S_CELL_B),
                     Paragraph('Pu [kN]',     _S_CELL_B),
-                    Paragraph('Tpr [kN]',    _S_CELL_B),
+                    Paragraph(f'{T_sym} [kN]', _S_CELL_B),
                     Paragraph('Ve,col [kN]', _S_CELL_B),
                     Paragraph('Vj [kN]',     _S_CELL_B),
                     Paragraph('φVn [kN]',    _S_CELL_B),
@@ -938,7 +1057,7 @@ def _s9_joint(row: dict, joint_static: dict, cases: list, beam_static: dict) -> 
                 crit_row_indices: list[int] = []
                 for ci, c in enumerate(cases):
                     Vj_c  = float(c['joint_case'].get(f'joint_{joint}_{axis}_Vu_kN', 0.0))
-                    Ve_c  = abs(float(c['prob_shear'].get(f'Ve_col_{axis}_kN', 0.0)))
+                    Ve_c  = float(c['joint_case'].get(f'joint_{joint}_{axis}_Ve_col_kN', 0.0))
                     Tpr_c = float(c['joint_case'].get(f'joint_{joint}_{axis}_Tpr_kN', 0.0))
                     dc_c  = Vj_c / max(pVn, 1e-9)
                     is_c  = (ci == crit_idx)
@@ -1210,7 +1329,7 @@ def build_detailed_pdf_report(ctx: dict) -> bytes:
         Paragraph(
             f'{column_id}'
             + (f'  ·  {pry_name}' if pry_name else '')
-            + '  ·  ACI 318-22 / ASCE 41',
+            + '  ·  ACI 318-25 / ASCE 41',
             _S_SUBTITLE,
         ),
         HRFlowable(width='100%', thickness=0.5, color=_BLACK, spaceAfter=4*mm),

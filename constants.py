@@ -5,7 +5,7 @@ reviewer can trace every numeric value back to its source document.
 """
 
 # ---------------------------------------------------------------------------
-# ACI 318-22  — Material model for concrete
+# ACI 318-25  — Material model for concrete
 # ---------------------------------------------------------------------------
 ACI_ALPHA1 = 0.85          # Concrete compression block coefficient  (ACI 22.2.1.3)
 ACI_ECU = 0.003            # Ultimate concrete compressive strain     (ACI 22.2.2.1)
@@ -16,30 +16,59 @@ ACI_BETA1_SLOPE = 0.05     # beta1 reduction per 7 MPa above pivot    (ACI Table
 ACI_BETA1_FC_STEP = 7.0    # MPa step for beta1 reduction             (ACI Table 22.2.2.4.3)
 
 # ---------------------------------------------------------------------------
-# ACI 318-22  — Material model for steel
+# ACI 318-25  — Material model for steel
 # ---------------------------------------------------------------------------
 ACI_ES_MPA = 200_000.0     # Modulus of elasticity of steel, MPa      (ACI 20.2.2.2)
 
 # ---------------------------------------------------------------------------
-# ACI 318-22  — Strength reduction factors (phi)
+# ACI 318-25  — Strength reduction factors (phi)
 # ---------------------------------------------------------------------------
 ACI_PHI_COMPRESSION = 0.65          # Compression-controlled sections  (ACI Table 21.2.2)
 ACI_PHI_TENSION = 0.90              # Tension-controlled sections       (ACI Table 21.2.2)
 ACI_PHI_TRANSITION_STRAIN = 0.003   # Strain range over which phi transitions (ACI 21.2.2)
-ACI_PHI_SHEAR = 0.75                # Shear and torsion                 (ACI Table 21.2.1(c))
-ACI_PHI_JOINT = 0.85                # Beam-column joints                (ACI Table 21.2.1(d))
+ACI_PHI_SHEAR = 0.75                # Shear and torsion                 (ACI Table 21.2.1(b))
+ACI_PHI_JOINT = 0.85                # Beam-column joints of SMF         (ACI 21.2.4.4)
+ACI_PHI_JOINT_NONSMF = 0.75         # Beam-column joints of IMF/OMF/gravity frames (ACI 15.5.1.2 / 18.4.4.7.3 -> 21.2.1)
 
 # ---------------------------------------------------------------------------
-# ACI 318-22  — Axial capacity (nominal concentric)
+# ACI 318-25  — Axial capacity (nominal concentric)
 # ---------------------------------------------------------------------------
 ACI_VC_COEFF = 0.17                 # Simplified Vc coefficient, sqrt(f'c)*bw*d  (ACI 22.5.5.1)
 ACI_VC_ZERO_AXIAL_DIVISOR = 20.0   # Vc=0 when Pu < Ag*f'c / 20               (ACI 18.7.6.2.1)
 
 # ---------------------------------------------------------------------------
-# ACI 318-22  — Seismic detailing (Chapter 18)
+# ACI 318-25  — Seismic detailing (Chapter 18)
 # ---------------------------------------------------------------------------
 ACI_SCWB_FACTOR = 1.2              # Strong-column weak-beam ratio             (ACI 18.7.3.2)
-ACI_FYE_FACTOR = 1.25              # Probable flexural strength factor (fye/fy) (ACI 18.6.5 / ASCE 41)
+ACI_FYE_FACTOR = 1.25              # Probable flexural strength factor (fye/fy) (ACI 18.8.2.1 / 18.6.5)
+
+# ACI 18.7.2.1 — SMF column dimensional limits
+ACI_SMF_MIN_DIMENSION_MM = 300.0   # Shortest cross-sectional dimension        (ACI 18.7.2.1(a))
+ACI_SMF_ASPECT_RATIO_MIN = 0.4     # Shortest / perpendicular dimension        (ACI 18.7.2.1(b))
+
+# ACI 18.7.4.1 — SMF longitudinal reinforcement limits (also gravity via 18.14.3.2(b))
+ACI_RHO_LONG_MAX_SMF = 0.06        # 0.01Ag <= Ast <= 0.06Ag                   (ACI 18.7.4.1)
+
+# ACI 18.8.2.3 — SMF joint depth vs. beam bar diameter
+ACI_JOINT_DEPTH_DB_G420 = 20.0     # h_joint >= 20*db largest Grade 420 beam bar (ACI 18.8.2.3(a))
+ACI_JOINT_DEPTH_DB_G550 = 26.0     # h_joint >= 26*db largest Grade 550 beam bar (ACI 18.8.2.3(b))
+
+# ACI 18.4.3.3 — IMF column hoop spacing so within lo
+ACI_IMF_SO_DB_FACTOR_G420 = 8.0    # so <= 8db (Grade 420)                     (ACI 18.4.3.3(a))
+ACI_IMF_SO_CAP_G420_MM = 200.0     # so <= 200 mm (Grade 420)                  (ACI 18.4.3.3(a))
+ACI_IMF_SO_DB_FACTOR_G550 = 6.0    # so <= 6db (Grade 550)                     (ACI 18.4.3.3(b))
+ACI_IMF_SO_CAP_G550_MM = 150.0     # so <= 150 mm (Grade 550)                  (ACI 18.4.3.3(b))
+ACI_IMF_SO_MIN_DIM_FACTOR = 0.5    # so <= half smallest cross-section dim     (ACI 18.4.3.3(c))
+
+# ACI 18.3.3 — OMF column shear applicability
+ACI_OMF_SHEAR_LU_C1_FACTOR = 5.0   # 18.3.3 applies to columns with lu <= 5*c1 (ACI 18.3.3)
+
+# ACI 25.7.2.1(b) — general (non-seismic) tie spacing, used for OMF columns
+ACI_TIE_SPACING_16DB = 16.0        # s <= 16db of longitudinal bar             (ACI 25.7.2.1(b))
+ACI_TIE_SPACING_48DBT = 48.0       # s <= 48db of tie bar                      (ACI 25.7.2.1(b))
+
+# ACI Table 10.7.6.5.2 — max spacing of column shear reinforcement (d/2 branch)
+ACI_SHEAR_TIE_SPACING_CAP_MM = 600.0  # s <= min(d/2, 600 mm) when Vs <= 0.33*sqrt(f'c)*bw*d
 
 # ACI 18.7.5 — Confinement region lo
 ACI_LO_MIN_MM = 450.0              # Absolute minimum confinement length       (ACI 18.7.5.1)

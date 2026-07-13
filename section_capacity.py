@@ -9,10 +9,11 @@ from constants import (
     ACI_ECU,
     ACI_ES_MPA,
     ACI_FYE_FACTOR,
-    ACI_PHI_COMPRESSION, ACI_PHI_JOINT, ACI_PHI_SHEAR, ACI_PHI_TENSION, ACI_PHI_TRANSITION_STRAIN,
+    ACI_PHI_COMPRESSION, ACI_PHI_JOINT, ACI_PHI_JOINT_NONSMF, ACI_PHI_SHEAR, ACI_PHI_TENSION, ACI_PHI_TRANSITION_STRAIN,
     ACI_SCWB_FACTOR,
     ACI_VC_COEFF, ACI_VC_ZERO_AXIAL_DIVISOR,
 )
+from frame_types import IMF, OMF, SMF, frame_class
 
 BEAM_PREFIXES = ['beam_top_x', 'beam_bottom_x', 'beam_top_y', 'beam_bottom_y']
 
@@ -250,6 +251,7 @@ def _beam_side_strength(face: str, side: str, row: Dict[str, object]) -> Dict[st
         'n_bars_bot': n_bot, 'db_bot_mm': db_bot, 'As_bot_mm2': As_bot,
         'Mn_pos_kNm': Mn_pos, 'Mn_neg_kNm': Mn_neg,
         'Mpr_pos_kNm': Mpr_pos, 'Mpr_neg_kNm': Mpr_neg,
+        'Tn_pos_kN': T_pos, 'Tn_neg_kN': T_neg,
         'Tpr_pos_kN': Tpr_pos, 'Tpr_neg_kN': Tpr_neg,
         'joint_Mn_kNm': joint_Mn, 'joint_Mpr_kNm': joint_Mpr, 'joint_Tpr_kN': joint_Tpr,
         'jd_pos_mm': jd_pos, 'jd_neg_mm': jd_neg,
@@ -288,29 +290,33 @@ def compute_beam_actions(row: Dict[str, object]) -> Dict[str, float]:
         data[f'{face}_Mpr_neg_kNm'] = sum(float(s['Mpr_neg_kNm']) for s in active)
         data[f'{face}_joint_Mn_kNm'] = sum(float(s['joint_Mn_kNm']) for s in active)
         data[f'{face}_joint_Mpr_kNm'] = sum(float(s['joint_Mpr_kNm']) for s in active)
-        # ACI 18.8.4.1: "tensile and compressive beam forces."
+        # ACI 18.8.4.1 (SMF, 1.25fy) / 18.3.4 (IMF-OMF-gravity, fy): "tensile and
+        # compressive beam forces."
         # For two-sided (interior) joint: evaluate both seismic scenarios and take the max.
         #   Scenario A — side1 hogging, side2 sagging: T_neg_s1 + T_pos_s2
         #   Scenario B — side1 sagging, side2 hogging: T_pos_s1 + T_neg_s2
         # For one-sided (exterior) joint: max(T_top, T_bot) — the compression from the same
         #   beam acts in the opposite direction and does not add to joint shear.
-        if n_active == 2:
-            s1, s2 = active[0], active[1]
-            Tn1 = float(s1['Tpr_neg_kN'])   # T_top (hogging) of side1
-            Tp1 = float(s1['Tpr_pos_kN'])   # T_bot (sagging) of side1
-            Tn2 = float(s2['Tpr_neg_kN'])   # T_top (hogging) of side2
-            Tp2 = float(s2['Tpr_pos_kN'])   # T_bot (sagging) of side2
-            scen_a = Tn1 + Tp2              # s1 hogs, s2 sags
-            scen_b = Tp1 + Tn2              # s1 sags, s2 hogs
-        elif n_active == 1:
-            Tn1 = float(active[0]['Tpr_neg_kN'])
-            Tp1 = float(active[0]['Tpr_pos_kN'])
-            scen_a = scen_b = max(Tn1, Tp1)
-        else:
-            scen_a = scen_b = 0.0
+        def _joint_tension_scenarios(pos_key: str, neg_key: str) -> tuple[float, float]:
+            if n_active == 2:
+                s1, s2 = active[0], active[1]
+                scen_a = float(s1[neg_key]) + float(s2[pos_key])   # s1 hogs, s2 sags
+                scen_b = float(s1[pos_key]) + float(s2[neg_key])   # s1 sags, s2 hogs
+            elif n_active == 1:
+                t = max(float(active[0][neg_key]), float(active[0][pos_key]))
+                scen_a = scen_b = t
+            else:
+                scen_a = scen_b = 0.0
+            return scen_a, scen_b
+
+        scen_a, scen_b = _joint_tension_scenarios('Tpr_pos_kN', 'Tpr_neg_kN')
         data[f'{face}_joint_Tpr_kN']        = max(scen_a, scen_b)
         data[f'{face}_joint_Tpr_scen_a_kN'] = scen_a
         data[f'{face}_joint_Tpr_scen_b_kN'] = scen_b
+        scen_a_n, scen_b_n = _joint_tension_scenarios('Tn_pos_kN', 'Tn_neg_kN')
+        data[f'{face}_joint_Tn_kN']        = max(scen_a_n, scen_b_n)
+        data[f'{face}_joint_Tn_scen_a_kN'] = scen_a_n
+        data[f'{face}_joint_Tn_scen_b_kN'] = scen_b_n
         data[f'{face}_x_mm'] = min([float(s['x_mm']) for s in active if float(s['x_mm']) > 0.0], default=0.0)
         # ext only matters for single-sided framing; otherwise not governing for current simplified logic
         data[f'{face}_ext_mm'] = float(active[0]['ext_mm']) if n_active == 1 else 0.0
@@ -349,6 +355,22 @@ def probable_shear_for_column(row: Dict[str, object], beam_actions: Dict[str, fl
         out[f'col_Mpr_bot_{axis}_eff_kNm'] = bot_eff
         out[f'Ve_col_{axis}_kN'] = Ve_eq
         out[f'Ve_design_{axis}_kN'] = Ve_design
+        # IMF/OMF column design shear (ACI 18.4.3.1(a) / 18.3.3(a)): reverse-curvature
+        # hinging with NOMINAL moment strengths Mn at each end (no beam-strength cap).
+        Mn_top = float(col_data['Mn_pos_kNm'])
+        Mn_bot = float(col_data['Mn_neg_kNm'])
+        out[f'col_Mn_top_{axis}_kNm'] = Mn_top
+        out[f'col_Mn_bot_{axis}_kNm'] = Mn_bot
+        out[f'Ve_col_Mn_{axis}_kN'] = (Mn_top + Mn_bot) / max(lu_m, 1e-9)
+        # Column shear consistent with beam NOMINAL strengths for the non-SMF joint
+        # free-body (ACI 18.3.4): column Mn capped by the beam joint Mn on each face.
+        top_lim_n = float(beam_actions.get(f'beam_top_{axis}_joint_Mn_kNm', 0.0))
+        bot_lim_n = float(beam_actions.get(f'beam_bottom_{axis}_joint_Mn_kNm', 0.0))
+        top_eff_n = min(Mn_top, top_lim_n) if top_lim_n > 0.0 else Mn_top
+        bot_eff_n = min(Mn_bot, bot_lim_n) if bot_lim_n > 0.0 else Mn_bot
+        out[f'col_Mn_top_{axis}_eff_kNm'] = top_eff_n
+        out[f'col_Mn_bot_{axis}_eff_kNm'] = bot_eff_n
+        out[f'Ve_col_Mn_joint_{axis}_kN'] = (top_eff_n + bot_eff_n) / max(lu_m, 1e-9)
     return out
 
 
@@ -404,19 +426,49 @@ def _joint_confined(row: Dict[str, object], beam_actions: Dict[str, float], join
     }
 
 
-def _joint_coefficient(column_continuous: bool, beam_continuous: bool, confined: bool) -> float:
-    if column_continuous:
-        if beam_continuous:
-            return 1.7 if confined else 1.3
-        return 1.3 if confined else 1.0
-    if beam_continuous:
-        return 1.3 if confined else 1.0
-    return 1.0 if confined else 0.7
+# Joint shear strength coefficients (x sqrt(f'c)*Aj), keyed by
+# (column_continuous, beam_continuous, confined):
+#  - SMF and IMF joints use ACI Table 18.8.4.3 (IMF per 18.4.4.7.4).
+#  - OMF and gravity-frame joints use ACI Table 15.5.2.1 (Chapter 15).
+_JOINT_COEFF_18_8_4_3 = {
+    (True, True): (1.7, 1.3), (True, False): (1.3, 1.0),
+    (False, True): (1.3, 1.0), (False, False): (1.0, 0.7),
+}
+_JOINT_COEFF_15_5_2_1 = {
+    (True, True): (2.0, 1.7), (True, False): (1.7, 1.3),
+    (False, True): (1.7, 1.3), (False, False): (1.3, 1.0),
+}
+
+
+def joint_regime(row: Dict[str, object]) -> Dict[str, object]:
+    """phi, Vn coefficient table, and demand basis for the joint check by frame type."""
+    fclass = frame_class(row)
+    if fclass == SMF:
+        return {'frame_class': fclass, 'phi': ACI_PHI_JOINT, 'coeff_table': _JOINT_COEFF_18_8_4_3,
+                'table_ref': 'ACI Table 18.8.4.3', 'phi_ref': 'ACI 21.2.4.4', 'demand_fy_factor': ACI_FYE_FACTOR}
+    if fclass == IMF:
+        return {'frame_class': fclass, 'phi': ACI_PHI_JOINT_NONSMF, 'coeff_table': _JOINT_COEFF_18_8_4_3,
+                'table_ref': 'ACI Table 18.8.4.3 (18.4.4.7.4)', 'phi_ref': 'ACI 18.4.4.7.3 / 21.2.1', 'demand_fy_factor': 1.0}
+    return {'frame_class': fclass, 'phi': ACI_PHI_JOINT_NONSMF, 'coeff_table': _JOINT_COEFF_15_5_2_1,
+            'table_ref': 'ACI Table 15.5.2.1', 'phi_ref': 'ACI 15.5.1.2 / 21.2.1', 'demand_fy_factor': 1.0}
+
+
+def _joint_coefficient(column_continuous: bool, beam_continuous: bool, confined: bool,
+                       coeff_table: dict = _JOINT_COEFF_18_8_4_3) -> float:
+    pair = coeff_table[(bool(column_continuous), bool(beam_continuous))]
+    return pair[0] if confined else pair[1]
 
 
 def joint_capacity_static(row: Dict[str, object], beam_actions: Dict[str, float]) -> Dict[str, float | bool]:
     fc = float(row['fc_MPa'])
-    out: Dict[str, float | bool] = {'phi_joint': ACI_PHI_JOINT}
+    regime = joint_regime(row)
+    phi_joint = float(regime['phi'])
+    out: Dict[str, float | bool] = {
+        'phi_joint': phi_joint,
+        'joint_frame_class': regime['frame_class'],
+        'joint_table_ref': regime['table_ref'],
+        'joint_phi_ref': regime['phi_ref'],
+    }
     for joint in ['top', 'bottom']:
         column_cont = bool(row['joint_top'] if joint == 'top' else row['joint_bottom'])
         for axis in ['x', 'y']:
@@ -430,7 +482,7 @@ def joint_capacity_static(row: Dict[str, object], beam_actions: Dict[str, float]
             x_mm = float(beam_actions.get(f'{beam_face}_x_mm', 0.0))
             depth = _joint_depth_and_width(row, axis, bw, x_mm)
             conf = _joint_confined(row, beam_actions, joint, axis)
-            coeff = _joint_coefficient(column_cont, beam_cont, bool(conf['confined']))
+            coeff = _joint_coefficient(column_cont, beam_cont, bool(conf['confined']), regime['coeff_table'])
             Vn_kN = coeff * math.sqrt(fc) * float(depth['Aj_mm2']) / 1e3
             out[f'joint_{joint}_{axis}_active'] = True
             out[f'joint_{joint}_{axis}_column_continuous'] = column_cont
@@ -440,7 +492,7 @@ def joint_capacity_static(row: Dict[str, object], beam_actions: Dict[str, float]
             out[f'joint_{joint}_{axis}_Aj_mm2'] = float(depth['Aj_mm2'])
             out[f'joint_{joint}_{axis}_eff_width_mm'] = float(depth['eff_width_mm'])
             out[f'joint_{joint}_{axis}_h_joint_mm'] = float(depth['h_joint_mm'])
-            out[f'joint_{joint}_{axis}_phiVn_kN'] = ACI_PHI_JOINT * Vn_kN
+            out[f'joint_{joint}_{axis}_phiVn_kN'] = phi_joint * Vn_kN
             out[f'joint_{joint}_{axis}_Vn_kN'] = Vn_kN
             for suffix in ['cond_a', 'cond_b', 'cond_c', 'cond_d', 'count', 'face_width_mm', 'deeper_beam_h_mm']:
                 out[f'joint_{joint}_{axis}_{suffix}'] = conf[suffix]
@@ -448,14 +500,23 @@ def joint_capacity_static(row: Dict[str, object], beam_actions: Dict[str, float]
 
 
 def joint_shear_demand_case(row: Dict[str, object], beam_actions: Dict[str, float], probable_shear: Dict[str, float]) -> Dict[str, float]:
+    # SMF (18.8.4.1): beam tension at 1.25fy and column shear consistent with Mpr.
+    # IMF/OMF/gravity (18.4.4.7.2 / 18.3.4 / 15.4.2.1(b)): beam tension at fy (Mn)
+    # and column shear consistent with beam nominal moment strengths.
+    smf = frame_class(row) == SMF
     out: Dict[str, float] = {}
     for joint in ['top', 'bottom']:
         for axis in ['x', 'y']:
             beam_face = f'beam_{joint}_{axis}'
-            Tpr = float(beam_actions.get(f'{beam_face}_joint_Tpr_kN', 0.0))
-            Ve = abs(float(probable_shear.get(f'Ve_col_{axis}_kN', 0.0)))
-            Vu = max(Tpr - Ve, 0.0)
-            out[f'joint_{joint}_{axis}_Tpr_kN'] = Tpr
+            if smf:
+                T = float(beam_actions.get(f'{beam_face}_joint_Tpr_kN', 0.0))
+                Ve = abs(float(probable_shear.get(f'Ve_col_{axis}_kN', 0.0)))
+            else:
+                T = float(beam_actions.get(f'{beam_face}_joint_Tn_kN', 0.0))
+                Ve = abs(float(probable_shear.get(f'Ve_col_Mn_joint_{axis}_kN', 0.0)))
+            Vu = max(T - Ve, 0.0)
+            out[f'joint_{joint}_{axis}_Tpr_kN'] = T
+            out[f'joint_{joint}_{axis}_Ve_col_kN'] = Ve
             out[f'joint_{joint}_{axis}_Vu_kN'] = Vu
     return out
 
@@ -515,13 +576,17 @@ def shear_capacity_case(row: Dict[str, object], geom: Dict[str, object], probabl
     Pu_N = float(row['Pu_kN']) * 1e3
     phi = float(base['phi_shear'])
 
+    # The Vc = 0 rule (ACI 18.7.6.2.1) applies to SMF columns and, through
+    # 18.14.3.2(b) -> 18.7.6, to gravity columns in SDC D/E/F. Sections 18.3 (OMF)
+    # and 18.4 (IMF) do not invoke it.
+    rule_applies = frame_class(row) not in (IMF, OMF)
     out = dict(base)
     out['vc_zero_cond_b'] = Pu_N < Ag * fc / ACI_VC_ZERO_AXIAL_DIVISOR
     for axis in ['x', 'y']:
         Ve_eq = abs(float(probable_shear[f'Ve_col_{axis}_kN']))
         Vreq = abs(float(probable_shear[f'Ve_design_{axis}_kN']))
         cond_a = Ve_eq >= 0.5 * Vreq if Vreq > 0 else False
-        apply = cond_a and out['vc_zero_cond_b']
+        apply = rule_applies and cond_a and out['vc_zero_cond_b']
         Vc = 0.0 if apply else float(base[f'Vc_{axis}_kN'])
         Vs = float(base[f'Vs_{axis}_kN'])
         out[f'vc_zero_cond_a_{axis}'] = cond_a

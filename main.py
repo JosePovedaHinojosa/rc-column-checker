@@ -7,6 +7,8 @@ from pathlib import Path
 from aci_longitudinal_checks import longitudinal_checks
 from aci_transverse_checks import transverse_checks
 from asce41_rotation import compute_asce41_rotation
+from constants import ACI_JOINT_DEPTH_DB_G420, ACI_JOINT_DEPTH_DB_G550, ACI_OMF_SHEAR_LU_C1_FACTOR
+from frame_types import GRAVITY, IMF, OMF, SMF, frame_class
 from geometry_utils import compute_geometry
 from io_utils import read_inputs
 from pdf_report import build_pdf_report
@@ -181,12 +183,24 @@ def main():
                 add_info_check(static_checks, info_row, f'{prefix}_joint_Mn_kNm', round(beam_actions[f'{prefix}_joint_Mn_kNm'], 1), 'Simplified beam flexure', 'Connected beam nominal joint flexural strength for this explicit beam.')
                 add_info_check(static_checks, info_row, f'{prefix}_joint_Mpr_kNm', round(beam_actions[f'{prefix}_joint_Mpr_kNm'], 1), 'Simplified beam flexure', 'Connected beam probable joint flexural strength for this explicit beam.')
 
+        col_fclass = frame_class(prop_row)
         for joint in ['top', 'bottom']:
             for axis in ['x', 'y']:
                 if not joint_static.get(f'joint_{joint}_{axis}_active', False):
                     continue
                 add_info_check(static_checks, info_row, f'joint_{joint}_{axis}_Aj_mm2', round(joint_static[f'joint_{joint}_{axis}_Aj_mm2'], 1), 'ACI R15.5.2.2', 'Effective joint area Aj.')
-                add_info_check(static_checks, info_row, f'joint_{joint}_{axis}_phiVn_kN', round(joint_static[f'joint_{joint}_{axis}_phiVn_kN'], 1), 'ACI Table 18.8.4.3', 'Design nominal joint shear strength.')
+                add_info_check(static_checks, info_row, f'joint_{joint}_{axis}_phiVn_kN', round(joint_static[f'joint_{joint}_{axis}_phiVn_kN'], 1), str(joint_static.get('joint_table_ref', 'ACI Table 18.8.4.3')), f"Design joint shear strength (phi = {joint_static.get('phi_joint', 0.85)}).")
+                if col_fclass == SMF:
+                    db_beam_max = 0.0
+                    for side in ['side1', 'side2']:
+                        prefix = f'beam_{joint}_{axis}_{side}'
+                        if not beam_actions.get(f'{prefix}_active', False):
+                            continue
+                        db_beam_max = max(db_beam_max, float(beam_actions.get(f'{prefix}_db_top_mm', 0.0)), float(beam_actions.get(f'{prefix}_db_bot_mm', 0.0)))
+                    if db_beam_max > 0.0:
+                        db_factor = ACI_JOINT_DEPTH_DB_G420 if float(prop_row['fy_long_MPa']) <= 420.0 else ACI_JOINT_DEPTH_DB_G550
+                        h_joint = float(joint_static[f'joint_{joint}_{axis}_h_joint_mm'])
+                        add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_depth_20db', h_joint, db_factor * db_beam_max, 'ACI 18.8.2.3', f'Joint depth parallel to beam bars vs {db_factor:.0f}db of largest beam bar (db = {db_beam_max:.0f} mm) passing through the joint.')
                 add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_a', 1.0 if joint_static[f'joint_{joint}_{axis}_cond_a'] else 0.0, 1.0, 'ACI 15.5.2.5(a)', 'Transverse beam width coverage criterion.')
                 add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_b', 1.0 if joint_static[f'joint_{joint}_{axis}_cond_b'] else 0.0, 1.0, 'ACI 15.5.2.5(b)', 'Transverse beam area coverage criterion.')
                 add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_c', 1.0 if joint_static[f'joint_{joint}_{axis}_cond_c'] else 0.0, 1.0, 'ACI 15.5.2.5(c)', 'Transverse beam extension beyond joint face.')
@@ -233,7 +247,7 @@ def main():
             col_y = column_strengths_at_Pu(run_row, geom, axis='y')
             prob_shear = probable_shear_for_column(run_row, beam_actions, col_x, col_y)
             shear_case = shear_capacity_case(run_row, geom, prob_shear)
-            is_gravity = str(run_row.get('frame_type', '')).strip().upper().startswith('G')
+            fclass = frame_class(run_row)
             run_row['other_col_top_x_Mnc_kNm'] = resolve_other_column_mnc(run_row.get('top_other_column_section_id', 'same'), run_row, 'x', column_sections_map, other_col_cache)
             run_row['other_col_top_y_Mnc_kNm'] = resolve_other_column_mnc(run_row.get('top_other_column_section_id', 'same'), run_row, 'y', column_sections_map, other_col_cache)
             run_row['other_col_bottom_x_Mnc_kNm'] = resolve_other_column_mnc(run_row.get('bottom_other_column_section_id', 'same'), run_row, 'x', column_sections_map, other_col_cache)
@@ -245,19 +259,51 @@ def main():
             demand_ratio_pm_y = abs(float(run_row['Muy_kNm'])) / max(col_y['phiMn_kNm'], 1e-9)
             shear_ratio_x = abs(float(run_row['Vux_kN'])) / max(shear_case['phiVn_eff_x_kN'], 1e-9)
             shear_ratio_y = abs(float(run_row['Vuy_kN'])) / max(shear_case['phiVn_eff_y_kN'], 1e-9)
-            probable_shear_ratio_x = prob_shear['Ve_design_x_kN'] / max(shear_case['phiVn_eff_x_kN'], 1e-9)
-            probable_shear_ratio_y = prob_shear['Ve_design_y_kN'] / max(shear_case['phiVn_eff_y_kN'], 1e-9)
+
+            # Frame-dependent capacity-design column shear demand:
+            #   SMF (18.7.6.1.1) / gravity (18.14.3.2(b)): Ve from column Mpr, capped by
+            #   beam joint Mpr, never less than the analysis shear.
+            #   IMF (18.4.3.1(a)): Ve from column Mn hinging in reverse curvature.
+            #   OMF (18.3.3(a)): same as IMF but required only when lu <= 5*c1.
+            lu_mm = float(run_row['lu_mm'])
+            Ve_check = {}
+            Ve_ref = {}
+            omf_shear_applicable = {}
+            for axis, c1_mm in [('x', float(run_row['h_mm'])), ('y', float(run_row['b_mm']))]:
+                if fclass == IMF:
+                    Ve_check[axis] = float(prob_shear[f'Ve_col_Mn_{axis}_kN'])
+                    Ve_ref[axis] = 'ACI 18.4.3.1(a)'
+                elif fclass == OMF:
+                    applicable = lu_mm <= ACI_OMF_SHEAR_LU_C1_FACTOR * c1_mm
+                    omf_shear_applicable[axis] = applicable
+                    Ve_check[axis] = float(prob_shear[f'Ve_col_Mn_{axis}_kN']) if applicable else 0.0
+                    Ve_ref[axis] = 'ACI 18.3.3(a)'
+                else:
+                    Ve_check[axis] = float(prob_shear[f'Ve_design_{axis}_kN'])
+                    Ve_ref[axis] = 'ACI 18.7.6.1' if fclass == SMF else 'ACI 18.14.3.2(b) / 18.7.6.1'
+            probable_shear_ratio_x = Ve_check['x'] / max(shear_case['phiVn_eff_x_kN'], 1e-9)
+            probable_shear_ratio_y = Ve_check['y'] / max(shear_case['phiVn_eff_y_kN'], 1e-9)
             asce_rot = compute_asce41_rotation(run_row, geom, v_ratio_x=max(shear_ratio_x, 0.2), v_ratio_y=max(shear_ratio_y, 0.2))
 
             add_ratio_check(all_checks, run_row, 'pm_ratio_x', demand_ratio_pm_x, 1.0, 'Section strength', 'Factored bending demand over design flexural strength in x.')
             add_ratio_check(all_checks, run_row, 'pm_ratio_y', demand_ratio_pm_y, 1.0, 'Section strength', 'Factored bending demand over design flexural strength in y.')
             add_ratio_check(all_checks, run_row, 'shear_ratio_analysis_x', shear_ratio_x, 1.0, 'Section shear', 'Analysis shear demand over effective design shear strength in x.')
             add_ratio_check(all_checks, run_row, 'shear_ratio_analysis_y', shear_ratio_y, 1.0, 'Section shear', 'Analysis shear demand over effective design shear strength in y.')
-            add_ratio_check(all_checks, run_row, 'shear_ratio_probable_x', probable_shear_ratio_x, 1.0, 'ACI 18.7.6.1', 'Probable design shear over effective design shear strength in x.')
-            add_ratio_check(all_checks, run_row, 'shear_ratio_probable_y', probable_shear_ratio_y, 1.0, 'ACI 18.7.6.1', 'Probable design shear over effective design shear strength in y.')
-            add_warning_flag(all_checks, run_row, 'Vc_zero_rule_x', bool(shear_case['vc_zero_applies_x']), 'ACI 18.7.6.2.1', 'Vc set to zero in x within lo for this load case.')
-            add_warning_flag(all_checks, run_row, 'Vc_zero_rule_y', bool(shear_case['vc_zero_applies_y']), 'ACI 18.7.6.2.1', 'Vc set to zero in y within lo for this load case.')
-            if not is_gravity:
+            shear_msg = {
+                SMF: 'Probable (Mpr) design shear over effective design shear strength in {a}.',
+                GRAVITY: 'Probable (Mpr) design shear over effective design shear strength in {a}.',
+                IMF: 'Nominal-strength (Mn) hinging shear over design shear strength in {a}.',
+                OMF: 'Nominal-strength (Mn) hinging shear over design shear strength in {a}.',
+            }[fclass]
+            for axis, ratio in [('x', probable_shear_ratio_x), ('y', probable_shear_ratio_y)]:
+                if fclass == OMF and not omf_shear_applicable.get(axis, False):
+                    add_info_check(all_checks, run_row, f'shear_ratio_probable_{axis}', 'n/a', 'ACI 18.3.3', f'18.3.3 column shear provision not required in {axis}: lu = {lu_mm:.0f} mm > 5*c1.')
+                    continue
+                add_ratio_check(all_checks, run_row, f'shear_ratio_probable_{axis}', ratio, 1.0, Ve_ref[axis], shear_msg.format(a=axis))
+            if fclass in (SMF, GRAVITY):
+                add_warning_flag(all_checks, run_row, 'Vc_zero_rule_x', bool(shear_case['vc_zero_applies_x']), 'ACI 18.7.6.2.1', 'Vc set to zero in x within lo for this load case.')
+                add_warning_flag(all_checks, run_row, 'Vc_zero_rule_y', bool(shear_case['vc_zero_applies_y']), 'ACI 18.7.6.2.1', 'Vc set to zero in y within lo for this load case.')
+            if fclass == SMF:
                 add_min_check(all_checks, run_row, 'scwb_top_x', scwb['scwb_top_x_ratio'], 1.0, 'ACI 18.7.3.2', 'Strong-column weak-beam ratio at top joint in x.')
                 add_min_check(all_checks, run_row, 'scwb_bottom_x', scwb['scwb_bottom_x_ratio'], 1.0, 'ACI 18.7.3.2', 'Strong-column weak-beam ratio at bottom joint in x.')
                 add_min_check(all_checks, run_row, 'scwb_top_y', scwb['scwb_top_y_ratio'], 1.0, 'ACI 18.7.3.2', 'Strong-column weak-beam ratio at top joint in y.')
@@ -275,13 +321,19 @@ def main():
             if asce_rot['warnings']:
                 add_warning_flag(all_checks, run_row, 'asce41_parameter_warning', True, 'ASCE 41 Table 10-8 notes', ' | '.join(asce_rot['warnings']))
 
+            joint_demand_ref = {
+                SMF: ('ACI 18.8.4', 'ACI 18.8.4.1 simplified', 'Simplified joint shear demand using probable (1.25fy) beam tension minus column shear.'),
+                IMF: ('ACI 18.4.4.7', 'ACI 18.4.4.7.2 / 18.3.4 simplified', 'Simplified joint shear demand using nominal (fy) beam tension minus column shear.'),
+                OMF: ('ACI 18.3.4 / 15.5', 'ACI 18.3.4 simplified', 'Simplified joint shear demand using nominal (fy) beam tension minus column shear.'),
+                GRAVITY: ('ACI 18.14.3.2(d) / 15.5', 'ACI 15.4.2.1(b) simplified', 'Simplified joint shear demand using nominal (fy) beam tension minus column shear.'),
+            }[fclass]
             for joint in ['top', 'bottom']:
                 for axis in ['x', 'y']:
                     if not joint_static.get(f'joint_{joint}_{axis}_active', False):
                         continue
                     ratio = joint_case[f'joint_{joint}_{axis}_Vu_kN'] / max(joint_static[f'joint_{joint}_{axis}_phiVn_kN'], 1e-9)
-                    add_ratio_check(all_checks, run_row, f'joint_{joint}_{axis}_shear_ratio', ratio, 1.0, 'ACI 18.8.4', f'Simplified joint shear demand/capacity ratio at {joint} joint in {axis}.')
-                    add_info_check(all_checks, run_row, f'joint_{joint}_{axis}_Vu_kN', round(joint_case[f'joint_{joint}_{axis}_Vu_kN'], 1), 'ACI 18.8.4.1 simplified', 'Simplified joint shear demand using probable beam tension minus column shear.')
+                    add_ratio_check(all_checks, run_row, f'joint_{joint}_{axis}_shear_ratio', ratio, 1.0, joint_demand_ref[0], f'Simplified joint shear demand/capacity ratio at {joint} joint in {axis}.')
+                    add_info_check(all_checks, run_row, f'joint_{joint}_{axis}_Vu_kN', round(joint_case[f'joint_{joint}_{axis}_Vu_kN'], 1), joint_demand_ref[1], joint_demand_ref[2])
 
             check_rows.extend(all_checks)
 
@@ -296,8 +348,9 @@ def main():
                 'Mpr_top_y_kNm': round(col_y['Mpr_pos_kNm'], 1), 'Mpr_bot_y_kNm': round(col_y['Mpr_neg_kNm'], 1),
                 'phiVn_x_kN': round(shear_case['phiVn_eff_x_kN'], 1), 'phiVn_y_kN': round(shear_case['phiVn_eff_y_kN'], 1),
                 'Vc_zero_x': bool(shear_case['vc_zero_applies_x']), 'Vc_zero_y': bool(shear_case['vc_zero_applies_y']),
-                'Ve_column_x_kN': round(prob_shear['Ve_col_x_kN'], 1), 'Ve_column_y_kN': round(prob_shear['Ve_col_y_kN'], 1),
-                'Ve_design_x_kN': round(prob_shear['Ve_design_x_kN'], 1), 'Ve_design_y_kN': round(prob_shear['Ve_design_y_kN'], 1),
+                'Ve_column_x_kN': round(prob_shear['Ve_col_x_kN'] if fclass in (SMF, GRAVITY) else prob_shear['Ve_col_Mn_x_kN'], 1),
+                'Ve_column_y_kN': round(prob_shear['Ve_col_y_kN'] if fclass in (SMF, GRAVITY) else prob_shear['Ve_col_Mn_y_kN'], 1),
+                'Ve_design_x_kN': round(Ve_check['x'], 1), 'Ve_design_y_kN': round(Ve_check['y'], 1),
                 'RotX': round(float(run_row.get('RotX', 0.0)), 6), 'RotY': round(float(run_row.get('RotY', run_row.get('RotZ', 0.0))), 6),
                 'asce41_x_a': round(asce_rot['x']['a'], 6), 'asce41_x_b': round(asce_rot['x']['b'], 6), 'asce41_x_c': round(asce_rot['x']['c'], 6),
                 'asce41_x_theta_io': round(asce_rot['x']['theta_io'], 6), 'asce41_x_theta_ls': round(asce_rot['x']['theta_ls'], 6), 'asce41_x_theta_cp': round(asce_rot['x']['theta_cp'], 6),
