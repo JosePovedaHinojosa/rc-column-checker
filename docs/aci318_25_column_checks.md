@@ -71,6 +71,21 @@ Status codes: ✅ implemented · 🔧 fixed/added in the 2026-07 frame-type upda
 | `joint_*_15.5.2.5_a..d` (transverse-beam confinement conditions) | all | Table 15.5.2.5 | ✅ |
 | `asce41_rot_ratio_x/y` + parameters | all | ASCE 41-17 Table 10-8 | ✅ |
 
+## Strength basis (`analysis_type`: linear / nonlinear)
+
+Each assembly declares how its demands were obtained; capacities for the D/C checks follow:
+
+| | `linear` (default) | `nonlinear` |
+|---|---|---|
+| Materials | nominal f'c, fy | **expected**: f'ce = `asce_fce_factor`·f'c (default 1.50), fye = `asce_fye_factor`·fy (default 1.25) — ASCE 41 Table 10-1 |
+| φ factors | ACI Ch. 21 | **1.0** (ASCE 41 §10.2.2) |
+| Axial cap (`axial_cap_ratio`) | Pu ≤ **0.80·φ·Po** tied / 0.85 spiral (ACI Table 22.4.2.1) | Pu ≤ Po,e (φ = 1.0) |
+| Applies to | P-M, analysis & capacity-design shear, joint shear, axial cap | same checks, expected basis |
+| Demand side (Mpr hinging, SCWB, joint tension) | nominal-basis Mpr (1.25fy) | unchanged — still nominal-basis Mpr/Tn |
+| P-M diagrams | design-basis curves | expected-basis curves (demand points overlay consistently) |
+
+Checks computed on the expected basis carry an `[expected]` tag in their `code_ref`, and `column_results.csv` gains `analysis_basis` and `axial_cap_ratio` columns.
+
 ## Implementation notes
 
 - Joint tension for two-sided joints is scenario-based:

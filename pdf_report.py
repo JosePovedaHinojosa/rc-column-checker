@@ -165,6 +165,9 @@ def _s_input_summary(row: dict, section_png: str) -> list:
         ['Column ID',       str(row['column_id'])],
         ['Story',           str(row['story'])],
         ['Frame type',      str(row['frame_type'])],
+        ['Strength basis',  ('Expected (ASCE 41, φ = 1.0)'
+                             if str(row.get('analysis_type', 'linear')).lower().startswith('n')
+                             else 'Design (ACI φ factors)')],
         ['b [mm]',          _fmt(row['b_mm'], 1)],
         ['h [mm]',          _fmt(row['h_mm'], 1)],
         ['Cover [mm]',      _fmt(row['cover_mm'], 1)],

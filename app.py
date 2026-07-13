@@ -116,6 +116,10 @@ def _sync_widget_keys(data: dict) -> None:
         ss[f'asm_{i}_jt']      = bool(asm.get('joint_top', True))
         ss[f'asm_{i}_jb']      = bool(asm.get('joint_bottom', True))
         ss[f'asm_{i}_yield']   = bool(asm.get('yielding_region_expected', True))
+        _basis = str(asm.get('analysis_type', 'linear')).lower()
+        ss[f'asm_{i}_analysis'] = _basis if _basis in ('linear', 'nonlinear') else 'linear'
+        _sdc = str(asm.get('seismic_design_category', 'D')).upper()
+        ss[f'asm_{i}_sdc'] = _sdc if _sdc in ('A', 'B', 'C', 'D', 'E', 'F') else 'D'
 
         for k, face in asm.get('beam_faces', {}).items():
             _bid = face.get('section_id', 'none')
@@ -272,6 +276,8 @@ def _default_assembly(col_id: str = 'COL_1', col_section_id: str = 'COL_SEC_1') 
         'col_section_id':           col_section_id,
         'story':                    '1',
         'frame_type':               'SMF',
+        'analysis_type':            'linear',
+        'seismic_design_category':  'D',
         'clear_height_mm':          3200.0,
         'top_other_col_id':         'same',
         'bottom_other_col_id':      'none',    # base column
@@ -543,6 +549,9 @@ def _write_column_sections_csv(path: Path) -> None:
             'asce_splice_controlled':         sec['asce_splice_controlled'],
             'asce_splice_two_tie_groups':     sec['asce_splice_two_tie_groups'],
             'asce_ties_adequately_anchored':  sec['asce_ties_adequately_anchored'],
+            'asce_fye_factor':                sec.get('asce_fye_factor', 1.25),
+            'asce_fyte_factor':               sec.get('asce_fyte_factor', 1.25),
+            'asce_fce_factor':                sec.get('asce_fce_factor', 1.50),
         })
     with path.open('w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
@@ -579,6 +588,7 @@ def _write_column_beam_csv(path: Path) -> None:
             'joint_bottom':                   asm['joint_bottom'],
             'yielding_region_expected':       asm['yielding_region_expected'],
             'seismic_design_category':        asm.get('seismic_design_category', 'D'),
+            'analysis_type':                  asm.get('analysis_type', 'linear'),
             'lu_mm':                          asm.get('lu_mm', ''),  # blank -> clear_height_mm
         }
         for face in BEAM_FACES:
@@ -1530,6 +1540,30 @@ def _render_asm_identity(asm: dict, i: int, sec_ids: list[str]) -> None:
         asm['yielding_region_expected'] = c10.checkbox(
             'Yielding region', value=bool(asm['yielding_region_expected']), key=f'asm_{i}_yield',
             help='**ACI 18.7.5** — True: full confinement at ends required.',
+        )
+
+        c11, c12, _sp = st.columns(3)
+        basis_opts = ['linear', 'nonlinear']
+        basis_val = str(asm.get('analysis_type', 'linear')).lower()
+        asm['analysis_type'] = c11.selectbox(
+            'Analysis type', basis_opts,
+            index=basis_opts.index(basis_val) if basis_val in basis_opts else 0,
+            key=f'asm_{i}_analysis',
+            help=(
+                '**Strength basis for D/C ratios.** linear: nominal materials with ACI φ '
+                'factors, plus the ACI 22.4.2.1 axial cap (0.80·φ·Po tied / 0.85 spiral). '
+                'nonlinear: demands from nonlinear (e.g. time-history) analysis are checked '
+                'against ASCE 41 expected strengths — fce = 1.5·f\'c, fye = 1.25·fy '
+                '(Table 10-1, overridable per section) with φ = 1.0.'
+            ),
+        )
+        sdc_opts = ['A', 'B', 'C', 'D', 'E', 'F']
+        sdc_val = str(asm.get('seismic_design_category', 'D')).upper()
+        asm['seismic_design_category'] = c12.selectbox(
+            'Seismic design category', sdc_opts,
+            index=sdc_opts.index(sdc_val) if sdc_val in sdc_opts else 3,
+            key=f'asm_{i}_sdc',
+            help='**ACI 18.2.1.1** — used for the frame-type consistency warning and the 18.14 gravity scope check.',
         )
 
 

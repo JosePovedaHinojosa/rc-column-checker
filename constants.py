@@ -35,6 +35,8 @@ ACI_PHI_JOINT_NONSMF = 0.75         # Beam-column joints of IMF/OMF/gravity fram
 # ---------------------------------------------------------------------------
 ACI_VC_COEFF = 0.17                 # Simplified Vc coefficient, sqrt(f'c)*bw*d  (ACI 22.5.5.1)
 ACI_VC_ZERO_AXIAL_DIVISOR = 20.0   # Vc=0 when Pu < Ag*f'c / 20               (ACI 18.7.6.2.1)
+ACI_PN_MAX_TIED = 0.80             # Pn,max = 0.80*Po for tied columns         (ACI Table 22.4.2.1)
+ACI_PN_MAX_SPIRAL = 0.85           # Pn,max = 0.85*Po for spiral columns       (ACI Table 22.4.2.1)
 
 # ---------------------------------------------------------------------------
 # ACI 318-25  — Seismic detailing (Chapter 18)
@@ -99,10 +101,11 @@ ACI_RHO_S_CIRC_F = 0.35            # Coefficient for expression (f)             
 ACI_GRAVITY_AXIAL_TRIGGER = 0.35   # Pu > 0.35*Po triggers additional requirements (ACI 18.14.3.2(c))
 
 # ---------------------------------------------------------------------------
-# ASCE 41  — Expected material strength factors (Table 10-4)
+# ASCE 41  — Expected material strength factors (Table 10-1)
 # ---------------------------------------------------------------------------
-ASCE41_FYE_DEFAULT = 1.25          # Default fye/fy ratio (expected/nominal)    (ASCE 41 Table 10-4)
-ASCE41_FYTE_DEFAULT = 1.25         # Default fyte/fyt ratio                     (ASCE 41 Table 10-4)
+ASCE41_FYE_DEFAULT = 1.25          # Default fye/fy ratio (expected/nominal)    (ASCE 41 Table 10-1)
+ASCE41_FYTE_DEFAULT = 1.25         # Default fyte/fyt ratio                     (ASCE 41 Table 10-1)
+ASCE41_FCE_DEFAULT = 1.50          # Default f'ce/f'c ratio (expected/nominal)  (ASCE 41 Table 10-1)
 
 # ---------------------------------------------------------------------------
 # ASCE 41 Table 10-8  — Plastic rotation parameters, RC columns with hoops

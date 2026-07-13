@@ -48,6 +48,7 @@ OPTIONAL_COLUMN_SECTION_NUMERIC = {
     'free_spacing_min_mm': 40.0,
     'asce_fye_factor': 1.25,
     'asce_fyte_factor': 1.25,
+    'asce_fce_factor': 1.50,   # expected/nominal f'c ratio (ASCE 41 Table 10-1)
     'cover_additional_transverse_cover_mm': 999.0,
     'cover_additional_transverse_spacing_mm': 999.0,
 }
@@ -62,6 +63,7 @@ OPTIONAL_COLUMN_BEAM_TEXT = {
     'top_other_column_section_id': 'same',
     'bottom_other_column_section_id': 'same',
     'seismic_design_category': 'D',
+    'analysis_type': 'linear',   # 'linear' (design basis) | 'nonlinear' (ASCE 41 expected strengths)
     'notes': '',
 }
 OPTIONAL_COLUMN_BEAM_BOOL = {'gravity_design_actions_checked': True}
@@ -85,7 +87,7 @@ COLUMN_BEAM_BOOL_COLUMNS = {
 }
 COLUMN_BEAM_TEXT_COLUMNS = {
     'column_id', 'story', 'frame_type', 'column_section_id', 'top_other_column_section_id',
-    'bottom_other_column_section_id', 'seismic_design_category', 'notes',
+    'bottom_other_column_section_id', 'seismic_design_category', 'analysis_type', 'notes',
 }
 for face in BEAM_FACES:
     for side in BEAM_SIDES:
@@ -191,6 +193,9 @@ def write_project_csvs(data: Dict[str, object], outdir: str | Path) -> Dict[str,
             'asce_splice_controlled':        sec['asce_splice_controlled'],
             'asce_splice_two_tie_groups':    sec['asce_splice_two_tie_groups'],
             'asce_ties_adequately_anchored': sec['asce_ties_adequately_anchored'],
+            'asce_fye_factor':               sec.get('asce_fye_factor', 1.25),
+            'asce_fyte_factor':              sec.get('asce_fyte_factor', 1.25),
+            'asce_fce_factor':               sec.get('asce_fce_factor', 1.50),
         })
 
     beam_rows = list(data.get('beam_sections') or [])
@@ -215,6 +220,7 @@ def write_project_csvs(data: Dict[str, object], outdir: str | Path) -> Dict[str,
             'joint_bottom':                   asm['joint_bottom'],
             'yielding_region_expected':       asm['yielding_region_expected'],
             'seismic_design_category':        asm.get('seismic_design_category', 'D'),
+            'analysis_type':                  asm.get('analysis_type', 'linear'),
             'lu_mm':                          asm.get('lu_mm', ''),  # blank -> clear_height_mm
         }
         for face in BEAM_FACES:
@@ -340,6 +346,7 @@ def read_column_beam_csv(path: str | Path) -> Dict[str, Dict[str, object]]:
         out['top_other_column_section_id'] = _normalize_text(out.get('top_other_column_section_id', 'same')) or 'same'
         out['bottom_other_column_section_id'] = _normalize_text(out.get('bottom_other_column_section_id', 'same')) or 'same'
         out['seismic_design_category'] = _normalize_text(out.get('seismic_design_category', 'D')).upper() or 'D'
+        out['analysis_type'] = _normalize_text(out.get('analysis_type', 'linear')).lower() or 'linear'
         out['notes'] = _normalize_text(out.get('notes', ''))
         for face in BEAM_FACES:
             for side in BEAM_SIDES:

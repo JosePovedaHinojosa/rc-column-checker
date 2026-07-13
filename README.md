@@ -49,6 +49,7 @@ RC Column Checker takes a **project `.json` file** (the GUI save format) or four
 - Applies the strong-column weak-beam (SCWB) rule (SMF columns).
 - Runs the ACI 318-25 detailing checks applicable to the column's frame type — SMF (18.7/18.8), IMF (18.4), OMF (18.3 + Ch. 10), or gravity (18.14).
 - Computes ASCE 41 plastic rotation parameters and checks demand against IO / LS / CP acceptance criteria.
+- Supports two **strength bases** per assembly: `linear` (nominal materials, ACI φ factors, and the ACI 22.4.2.1 axial cap 0.80·φ·Po) or `nonlinear` (demands from nonlinear/time-history analysis checked against **ASCE 41 expected strengths** — f'ce = 1.5·f'c, fye = 1.25·fy, φ = 1.0).
 - Exports results to CSV tables, SVG/PDF/PNG P-M diagrams, cross-section sketch PNGs, and two PDF report formats.
 
 ---

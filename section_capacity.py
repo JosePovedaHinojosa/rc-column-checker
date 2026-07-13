@@ -22,6 +22,22 @@ def steel_area_mm2(db_mm: float) -> float:
     return math.pi * db_mm ** 2 / 4.0
 
 
+def is_expected_basis(row: Dict[str, object]) -> bool:
+    """True when the column's demands come from nonlinear analysis and capacities
+    should use ASCE 41 expected material strengths (fce, fye) with phi = 1.0."""
+    return str(row.get('analysis_type', 'linear')).strip().lower().startswith('n')
+
+
+def expected_strength_row(row: Dict[str, object]) -> Dict[str, object]:
+    """Copy of the input row with materials scaled to expected strengths
+    (ASCE 41 Table 10-1 factors, overridable per section via asce_*_factor)."""
+    out = dict(row)
+    out['fc_MPa'] = float(row['fc_MPa']) * float(row.get('asce_fce_factor', 1.50))
+    out['fy_long_MPa'] = float(row['fy_long_MPa']) * float(row.get('asce_fye_factor', 1.25))
+    out['fy_trans_MPa'] = float(row['fy_trans_MPa']) * float(row.get('asce_fyte_factor', 1.25))
+    return out
+
+
 def beta1(fc_mpa: float) -> float:
     if fc_mpa <= ACI_BETA1_FC_PIVOT:
         return ACI_BETA1_MAX

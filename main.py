@@ -7,7 +7,10 @@ from pathlib import Path
 from aci_longitudinal_checks import longitudinal_checks
 from aci_transverse_checks import transverse_checks
 from asce41_rotation import compute_asce41_rotation
-from constants import ACI_JOINT_DEPTH_DB_G420, ACI_JOINT_DEPTH_DB_G550, ACI_OMF_SHEAR_LU_C1_FACTOR
+from constants import (
+    ACI_JOINT_DEPTH_DB_G420, ACI_JOINT_DEPTH_DB_G550, ACI_OMF_SHEAR_LU_C1_FACTOR,
+    ACI_PN_MAX_SPIRAL, ACI_PN_MAX_TIED,
+)
 from frame_types import GRAVITY, IMF, OMF, SMF, frame_class
 from geometry_utils import compute_geometry
 from io_utils import read_inputs, write_project_csvs
@@ -18,7 +21,9 @@ from reporting import build_latex_report, slugify, write_csv
 from section_capacity import (
     compute_beam_actions,
     column_strengths_at_Pu,
+    expected_strength_row,
     interaction_points,
+    is_expected_basis,
     joint_capacity_static,
     joint_shear_demand_case,
     probable_shear_for_column,
@@ -165,11 +170,34 @@ def main():
         prop_row = dict(columns_map[column_id])
         geom = compute_geometry(prop_row)
         beam_actions = compute_beam_actions(prop_row)
-        axial = pure_axial_capacity(prop_row, geom)
-        shear_base = shear_capacity_base(prop_row, geom)
-        flexure0_x = pure_flexure_capacity(prop_row, geom, axis='x')
-        flexure0_y = pure_flexure_capacity(prop_row, geom, axis='y')
-        joint_static = joint_capacity_static(prop_row, beam_actions)
+
+        # Strength basis: demands from nonlinear analysis are checked against
+        # ASCE 41 expected-strength capacities (fce, fye) with phi = 1.0;
+        # linear (design) demands keep nominal materials and ACI phi factors.
+        col_expected = is_expected_basis(prop_row)
+        cap_prop_row = expected_strength_row(prop_row) if col_expected else prop_row
+
+        axial = pure_axial_capacity(cap_prop_row, geom)
+        shear_base = shear_capacity_base(cap_prop_row, geom)
+        flexure0_x = pure_flexure_capacity(cap_prop_row, geom, axis='x')
+        flexure0_y = pure_flexure_capacity(cap_prop_row, geom, axis='y')
+        joint_static = joint_capacity_static(cap_prop_row, beam_actions)
+        if col_expected:
+            axial['phiPn0_kN'] = axial['Pn0_kN']
+            axial['phi_axial'] = 1.0
+            for ax in ['x', 'y']:
+                shear_base[f'phiVn_{ax}_kN'] = shear_base[f'Vn_{ax}_kN']
+            shear_base['phi_shear'] = 1.0
+            for fx in [flexure0_x, flexure0_y]:
+                fx['phiMn_pos_kNm'] = fx['Mn_pos_kNm']
+                fx['phiMn_neg_kNm'] = fx['Mn_neg_kNm']
+                fx['phiMn_min_kNm'] = fx['Mn_min_kNm']
+            joint_static['phi_joint'] = 1.0
+            joint_static['joint_phi_ref'] = 'ASCE 41 expected strength (phi = 1.0)'
+            for joint in ['top', 'bottom']:
+                for axis in ['x', 'y']:
+                    if joint_static.get(f'joint_{joint}_{axis}_active', False):
+                        joint_static[f'joint_{joint}_{axis}_phiVn_kN'] = joint_static[f'joint_{joint}_{axis}_Vn_kN']
 
         long_checks, _ = longitudinal_checks({**prop_row, 'load_case': 'ALL'}, geom)
         pu_values = [float(r['Pu_kN']) for r in col_rows]
@@ -179,8 +207,12 @@ def main():
         static_checks = long_checks + tr_checks
 
         info_row = {**prop_row, 'load_case': 'ALL'}
-        add_info_check(static_checks, info_row, 'capacity_Pn0_kN', round(axial['Pn0_kN'], 1), 'ACI 22 / simplified', 'Nominal axial capacity Pn0.')
-        add_info_check(static_checks, info_row, 'capacity_phiPn0_kN', round(axial['phiPn0_kN'], 1), 'ACI 22 / simplified', 'Design axial capacity phi*Pn0.')
+        basis_txt = ('nonlinear — capacities use ASCE 41 expected strengths '
+                     f"(fce = {float(prop_row.get('asce_fce_factor', 1.5))}·f'c, fye = {float(prop_row.get('asce_fye_factor', 1.25))}·fy, phi = 1.0)"
+                     ) if col_expected else 'linear — capacities use nominal materials and ACI phi factors'
+        add_info_check(static_checks, info_row, 'strength_basis', str(prop_row.get('analysis_type', 'linear')), 'ASCE 41 10.2.2 / ACI Ch. 21', f'Strength basis: {basis_txt}.')
+        add_info_check(static_checks, info_row, 'capacity_Pn0_kN', round(axial['Pn0_kN'], 1), 'ACI 22 / simplified', 'Concentric axial capacity Pn0 (strength-basis materials).')
+        add_info_check(static_checks, info_row, 'capacity_phiPn0_kN', round(axial['phiPn0_kN'], 1), 'ACI 22 / simplified', 'Design axial capacity phi*Pn0 (phi = 1.0 under expected basis).')
         add_info_check(static_checks, info_row, 'capacity_phiVn_x_base_kN', round(shear_base['phiVn_x_kN'], 1), 'ACI 22.5 / simplified', 'Base design shear capacity in x with Vc + Vs.')
         add_info_check(static_checks, info_row, 'capacity_phiVn_y_base_kN', round(shear_base['phiVn_y_kN'], 1), 'ACI 22.5 / simplified', 'Base design shear capacity in y with Vc + Vs.')
         add_info_check(static_checks, info_row, 'capacity_Mn0_x_kNm', round(flexure0_x['Mn_min_kNm'], 1), 'Strain compatibility', 'Pure flexure nominal capacity at Pu = 0 in x; simplified rectangular section.')
@@ -230,7 +262,9 @@ def main():
         check_rows.extend(static_checks)
 
         rep_row = representative_row_for_pm(col_rows)
-        pm_row = dict(prop_row)
+        # P-M diagrams use the same strength basis as the checks so demand points
+        # overlay the curves the ratios were computed against.
+        pm_row = dict(cap_prop_row)
         pm_row.update(rep_row)
         fy_rep = float(pm_row['fy_long_MPa'])
         col_x_pm = {
@@ -264,16 +298,35 @@ def main():
             run_row = dict(prop_row)
             run_row.update(row)
             all_checks = []
-            col_x = column_strengths_at_Pu(run_row, geom, axis='x')
-            col_y = column_strengths_at_Pu(run_row, geom, axis='y')
-            prob_shear = probable_shear_for_column(run_row, beam_actions, col_x, col_y)
-            shear_case = shear_capacity_case(run_row, geom, prob_shear)
             fclass = frame_class(run_row)
+
+            # Capacity structs use the strength-basis materials; demand-side
+            # structs (Mpr hinging, SCWB, joint tension) stay on nominal values.
+            cap_run_row = {**cap_prop_row, **row} if col_expected else run_row
+            col_x = column_strengths_at_Pu(cap_run_row, geom, axis='x')
+            col_y = column_strengths_at_Pu(cap_run_row, geom, axis='y')
+            if col_expected:
+                for c in (col_x, col_y):
+                    c['phiMn_kNm'] = c['Mnc_kNm']
+                    c['phiMn_pos_kNm'] = c['Mn_pos_kNm']
+                    c['phiMn_neg_kNm'] = c['Mn_neg_kNm']
+                    c['phi_pos'] = c['phi_neg'] = 1.0
+                col_x_dem = column_strengths_at_Pu(run_row, geom, axis='x')
+                col_y_dem = column_strengths_at_Pu(run_row, geom, axis='y')
+            else:
+                col_x_dem, col_y_dem = col_x, col_y
+            prob_shear = probable_shear_for_column(run_row, beam_actions, col_x_dem, col_y_dem)
+            shear_case = shear_capacity_case(cap_run_row, geom, prob_shear)
+            if col_expected:
+                for ax in ['x', 'y']:
+                    shear_case[f'phiVn_eff_{ax}_kN'] = shear_case[f'Vn_eff_{ax}_kN']
+                shear_case['phi_shear'] = 1.0
+            basis_tag = ' [expected]' if col_expected else ''
             run_row['other_col_top_x_Mnc_kNm'] = resolve_other_column_mnc(run_row.get('top_other_column_section_id', 'same'), run_row, 'x', column_sections_map, other_col_cache)
             run_row['other_col_top_y_Mnc_kNm'] = resolve_other_column_mnc(run_row.get('top_other_column_section_id', 'same'), run_row, 'y', column_sections_map, other_col_cache)
             run_row['other_col_bottom_x_Mnc_kNm'] = resolve_other_column_mnc(run_row.get('bottom_other_column_section_id', 'same'), run_row, 'x', column_sections_map, other_col_cache)
             run_row['other_col_bottom_y_Mnc_kNm'] = resolve_other_column_mnc(run_row.get('bottom_other_column_section_id', 'same'), run_row, 'y', column_sections_map, other_col_cache)
-            scwb = strong_column_weak_beam(run_row, beam_actions, col_x, col_y)
+            scwb = strong_column_weak_beam(run_row, beam_actions, col_x_dem, col_y_dem)
             joint_case = joint_shear_demand_case(run_row, beam_actions, prob_shear)
 
             demand_ratio_pm_x = abs(float(run_row['Mux_kNm'])) / max(col_x['phiMn_kNm'], 1e-9)
@@ -306,10 +359,26 @@ def main():
             probable_shear_ratio_y = Ve_check['y'] / max(shear_case['phiVn_eff_y_kN'], 1e-9)
             asce_rot = compute_asce41_rotation(run_row, geom, v_ratio_x=max(shear_ratio_x, 0.2), v_ratio_y=max(shear_ratio_y, 0.2))
 
-            add_ratio_check(all_checks, run_row, 'pm_ratio_x', demand_ratio_pm_x, 1.0, 'Section strength', 'Factored bending demand over design flexural strength in x.')
-            add_ratio_check(all_checks, run_row, 'pm_ratio_y', demand_ratio_pm_y, 1.0, 'Section strength', 'Factored bending demand over design flexural strength in y.')
-            add_ratio_check(all_checks, run_row, 'shear_ratio_analysis_x', shear_ratio_x, 1.0, 'Section shear', 'Analysis shear demand over effective design shear strength in x.')
-            add_ratio_check(all_checks, run_row, 'shear_ratio_analysis_y', shear_ratio_y, 1.0, 'Section shear', 'Analysis shear demand over effective design shear strength in y.')
+            add_ratio_check(all_checks, run_row, 'pm_ratio_x', demand_ratio_pm_x, 1.0, f'Section strength{basis_tag}', 'Bending demand over flexural capacity in x (strength-basis materials).')
+            add_ratio_check(all_checks, run_row, 'pm_ratio_y', demand_ratio_pm_y, 1.0, f'Section strength{basis_tag}', 'Bending demand over flexural capacity in y (strength-basis materials).')
+
+            # Axial compression cap: ACI 22.4.2.1 Pn,max for design-basis columns;
+            # expected concentric capacity Po,e (phi = 1.0) for nonlinear results.
+            Pu_case = float(run_row['Pu_kN'])
+            if col_expected:
+                axial_cap_kN = float(axial['Pn0_kN'])
+                cap_ref = 'ASCE 41 expected Po [expected]'
+                cap_msg = 'Compression demand over expected concentric capacity Po,e (phi = 1.0).'
+            else:
+                pn_factor = ACI_PN_MAX_SPIRAL if bool(run_row.get('spiral_provided', False)) else ACI_PN_MAX_TIED
+                axial_cap_kN = pn_factor * float(axial['phiPn0_kN'])
+                cap_ref = 'ACI 22.4.2.1'
+                cap_msg = f'Compression demand over maximum design axial strength {pn_factor:.2f}*phi*Po.'
+            axial_cap_ratio = max(Pu_case, 0.0) / max(axial_cap_kN, 1e-9)
+            add_ratio_check(all_checks, run_row, 'axial_cap_ratio', axial_cap_ratio, 1.0, cap_ref, cap_msg)
+
+            add_ratio_check(all_checks, run_row, 'shear_ratio_analysis_x', shear_ratio_x, 1.0, f'Section shear{basis_tag}', 'Analysis shear demand over effective shear capacity in x.')
+            add_ratio_check(all_checks, run_row, 'shear_ratio_analysis_y', shear_ratio_y, 1.0, f'Section shear{basis_tag}', 'Analysis shear demand over effective shear capacity in y.')
             shear_msg = {
                 SMF: 'Probable (Mpr) design shear over effective design shear strength in {a}.',
                 GRAVITY: 'Probable (Mpr) design shear over effective design shear strength in {a}.',
@@ -320,7 +389,7 @@ def main():
                 if fclass == OMF and not omf_shear_applicable.get(axis, False):
                     add_info_check(all_checks, run_row, f'shear_ratio_probable_{axis}', 'n/a', 'ACI 18.3.3', f'18.3.3 column shear provision not required in {axis}: lu = {lu_mm:.0f} mm > 5*c1.')
                     continue
-                add_ratio_check(all_checks, run_row, f'shear_ratio_probable_{axis}', ratio, 1.0, Ve_ref[axis], shear_msg.format(a=axis))
+                add_ratio_check(all_checks, run_row, f'shear_ratio_probable_{axis}', ratio, 1.0, Ve_ref[axis] + basis_tag, shear_msg.format(a=axis))
             if fclass in (SMF, GRAVITY):
                 add_warning_flag(all_checks, run_row, 'Vc_zero_rule_x', bool(shear_case['vc_zero_applies_x']), 'ACI 18.7.6.2.1', 'Vc set to zero in x within lo for this load case.')
                 add_warning_flag(all_checks, run_row, 'Vc_zero_rule_y', bool(shear_case['vc_zero_applies_y']), 'ACI 18.7.6.2.1', 'Vc set to zero in y within lo for this load case.')
@@ -353,7 +422,7 @@ def main():
                     if not joint_static.get(f'joint_{joint}_{axis}_active', False):
                         continue
                     ratio = joint_case[f'joint_{joint}_{axis}_Vu_kN'] / max(joint_static[f'joint_{joint}_{axis}_phiVn_kN'], 1e-9)
-                    add_ratio_check(all_checks, run_row, f'joint_{joint}_{axis}_shear_ratio', ratio, 1.0, joint_demand_ref[0], f'Simplified joint shear demand/capacity ratio at {joint} joint in {axis}.')
+                    add_ratio_check(all_checks, run_row, f'joint_{joint}_{axis}_shear_ratio', ratio, 1.0, joint_demand_ref[0] + basis_tag, f'Simplified joint shear demand/capacity ratio at {joint} joint in {axis}.')
                     add_info_check(all_checks, run_row, f'joint_{joint}_{axis}_Vu_kN', round(joint_case[f'joint_{joint}_{axis}_Vu_kN'], 1), joint_demand_ref[1], joint_demand_ref[2])
 
             check_rows.extend(all_checks)
@@ -365,8 +434,10 @@ def main():
                 'rho_long': round(float(geom['rho_long']), 5), 'n_lateral_supported_bars': int(geom['n_lateral_supported_bars']), 'hx_mm': round(float(geom['hx_mm']), 1),
                 'phiPn0_kN': round(axial['phiPn0_kN'], 1), 'phiMn_x_kNm': round(col_x['phiMn_kNm'], 1), 'phiMn_y_kNm': round(col_y['phiMn_kNm'], 1),
                 'Mnc_x_kNm': round(col_x['Mnc_kNm'], 1), 'Mnc_y_kNm': round(col_y['Mnc_kNm'], 1),
-                'Mpr_top_x_kNm': round(col_x['Mpr_pos_kNm'], 1), 'Mpr_bot_x_kNm': round(col_x['Mpr_neg_kNm'], 1),
-                'Mpr_top_y_kNm': round(col_y['Mpr_pos_kNm'], 1), 'Mpr_bot_y_kNm': round(col_y['Mpr_neg_kNm'], 1),
+                'Mpr_top_x_kNm': round(col_x_dem['Mpr_pos_kNm'], 1), 'Mpr_bot_x_kNm': round(col_x_dem['Mpr_neg_kNm'], 1),
+                'Mpr_top_y_kNm': round(col_y_dem['Mpr_pos_kNm'], 1), 'Mpr_bot_y_kNm': round(col_y_dem['Mpr_neg_kNm'], 1),
+                'analysis_basis': 'expected' if col_expected else 'design',
+                'axial_cap_ratio': round(axial_cap_ratio, 3),
                 'phiVn_x_kN': round(shear_case['phiVn_eff_x_kN'], 1), 'phiVn_y_kN': round(shear_case['phiVn_eff_y_kN'], 1),
                 'Vc_zero_x': bool(shear_case['vc_zero_applies_x']), 'Vc_zero_y': bool(shear_case['vc_zero_applies_y']),
                 'Ve_column_x_kN': round(prob_shear['Ve_col_x_kN'] if fclass in (SMF, GRAVITY) else prob_shear['Ve_col_Mn_x_kN'], 1),

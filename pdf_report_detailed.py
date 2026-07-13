@@ -225,6 +225,10 @@ def _s1_input(row: dict, section_png: str) -> list:
         ('Column ID', str(row['column_id'])),
         ('Story', str(row['story'])),
         ('Frame type', str(row['frame_type'])),
+        ('Strength basis', 'Expected (ASCE 41: fce = {:.2f}·f\'c, fye = {:.2f}·fy, φ = 1.0)'.format(
+            float(row.get('asce_fce_factor', 1.5)), float(row.get('asce_fye_factor', 1.25)))
+         if str(row.get('analysis_type', 'linear')).lower().startswith('n')
+         else 'Design (nominal materials, ACI φ factors)'),
         ('b — width [mm]', _f(row['b_mm'], 1)),
         ('h — depth [mm]', _f(row['h_mm'], 1)),
         ('Clear cover [mm]', _f(row['cover_mm'], 1)),
@@ -364,14 +368,23 @@ def _s2_geometry(row: dict, geom: dict) -> list:
 
 def _s3_axial(row: dict, geom: dict, axial: dict) -> list:
     story = _section_header('3  |  Axial Capacity  —  ACI 22.4.2')
-    fc  = float(row['fc_MPa'])
-    fy  = float(row['fy_long_MPa'])
+    expected = str(row.get('analysis_type', 'linear')).lower().startswith('n')
+    fce_f = float(row.get('asce_fce_factor', 1.5)) if expected else 1.0
+    fye_f = float(row.get('asce_fye_factor', 1.25)) if expected else 1.0
+    fc  = float(row['fc_MPa']) * fce_f
+    fy  = float(row['fy_long_MPa']) * fye_f
     Ag  = float(geom['Ag_mm2'])
     As  = float(geom['As_mm2'])
     Pn0 = float(axial['Pn0_kN'])
-    phi = ACI_PHI_COMPRESSION
+    phi = float(axial.get('phi_axial', ACI_PHI_COMPRESSION))
 
-    story += [Paragraph('Nominal concentric axial capacity', _S_H3)]
+    if expected:
+        story += [Paragraph(
+            f"Expected-strength basis (nonlinear analysis): f'ce = {fce_f:.2f}·f'c = {_f(fc,1)} MPa, "
+            f'fye = {fye_f:.2f}·fy = {_f(fy,0)} MPa, φ = 1.0 (ASCE 41 §10.2.2 / Table 10-1).',
+            _S_BODY,
+        )]
+    story += [Paragraph('Concentric axial capacity', _S_H3)]
     Cc_term = ACI_ALPHA1 * fc * (Ag - As)
     Cs_term = fy * As
     story += _eq_block(
@@ -383,10 +396,10 @@ def _s3_axial(row: dict, geom: dict, axial: dict) -> list:
 
     story += [Paragraph('Design axial capacity', _S_H3)]
     story += _eq_block(
-        f'φPn0 = φ · Pn0        (φ = {phi} for compression-controlled)',
+        f'φPn0 = φ · Pn0        (φ = {phi})',
         f'= {phi} × {_f(Pn0,1)}',
         f'= <b>{_f(axial["phiPn0_kN"],1)} kN</b>',
-        'ACI Table 21.2.2',
+        'ASCE 41 expected strength' if expected else 'ACI Table 21.2.2',
     )
     story.append(Spacer(1, 3*mm))
     return story
