@@ -579,6 +579,7 @@ def _write_column_beam_csv(path: Path) -> None:
             'joint_bottom':                   asm['joint_bottom'],
             'yielding_region_expected':       asm['yielding_region_expected'],
             'seismic_design_category':        asm.get('seismic_design_category', 'D'),
+            'lu_mm':                          asm.get('lu_mm', ''),  # blank -> clear_height_mm
         }
         for face in BEAM_FACES:
             for side in ('side1', 'side2'):

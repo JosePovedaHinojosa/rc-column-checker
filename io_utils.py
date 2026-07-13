@@ -215,6 +215,7 @@ def write_project_csvs(data: Dict[str, object], outdir: str | Path) -> Dict[str,
             'joint_bottom':                   asm['joint_bottom'],
             'yielding_region_expected':       asm['yielding_region_expected'],
             'seismic_design_category':        asm.get('seismic_design_category', 'D'),
+            'lu_mm':                          asm.get('lu_mm', ''),  # blank -> clear_height_mm
         }
         for face in BEAM_FACES:
             for side in BEAM_SIDES:
