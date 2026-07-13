@@ -1,6 +1,7 @@
 """
-Integration smoke test — runs the full pipeline on the bundled sample CSVs
-and verifies that outputs are produced and contain no unexpected NG failures.
+Integration smoke test — runs the full pipeline on the bundled SMF example
+project (inputs-tests/) and verifies that outputs are produced and contain no
+unexpected NG failures.
 
 This test catches regressions where a module refactor breaks the end-to-end
 calculation without any individual unit test failing.
@@ -22,11 +23,8 @@ def run_pipeline():
     result = subprocess.run(
         [
             sys.executable, str(ROOT / 'main.py'),
-            '--column-sections', str(ROOT / 'sample_column_sections.csv'),
-            '--beam-sections',   str(ROOT / 'sample_beam_sections.csv'),
-            '--column-beam',     str(ROOT / 'sample_column_beam_prop.csv'),
-            '--loads',           str(ROOT / 'sample_loads.csv'),
-            '--outdir',          str(OUTDIR),
+            '--project', str(ROOT / 'inputs-tests' / 'smf_interior_column.json'),
+            '--outdir',  str(OUTDIR),
             '--skip-pm',
         ],
         capture_output=True, text=True, cwd=str(ROOT),
@@ -80,24 +78,24 @@ class TestColumnChecks:
 
     def test_sample_columns_are_present(self):
         column_ids = {r['column_id'] for r in self._load_checks()}
-        assert 'COL_150x100' in column_ids
+        assert 'SMF-C1' in column_ids
 
     def test_detailing_checks_pass_for_sample_section(self):
         """
         ACI longitudinal and transverse detailing checks must pass for the
-        bundled sample section.  Joint confinement (15.5.2.5) and shear demand
-        checks are excluded here because they depend on the physical geometry
-        of the connected beams, not on the refactored calculation logic.
+        bundled SMF example.  Joint and demand checks are excluded here because
+        they depend on the physical geometry of the connected beams and loads,
+        not on the refactored calculation logic.
         """
         EXCLUDE_PREFIXES = ('joint_', 'pm_', 'shear_', 'scwb_', 'asce41_', 'gravity_')
         detailing_ng = [
             r for r in self._load_checks()
             if r['status'] == 'NG'
-            and r['column_id'] == 'COL_150x100'
+            and r['column_id'] == 'SMF-C1'
             and not any(r['check_name'].startswith(p) for p in EXCLUDE_PREFIXES)
         ]
         assert detailing_ng == [], (
-            'ACI detailing NG for COL_150x100:\n' +
+            'ACI detailing NG for SMF-C1:\n' +
             '\n'.join(f"  {r['check_name']}: {r['provided']} vs {r['required']}" for r in detailing_ng)
         )
 

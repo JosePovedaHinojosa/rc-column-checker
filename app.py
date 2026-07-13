@@ -325,27 +325,9 @@ def _init_state() -> None:
 # Geometry helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _bar_positions(n: int, dim_mm: float, cover_mm: float,
-                   tie_db_mm: float, bar_db_mm: float) -> list[float]:
-    if n <= 0:
-        return []
-    offset = cover_mm + tie_db_mm + bar_db_mm / 2.0
-    if n == 1:
-        return [dim_mm / 2.0]
-    return [offset + i * (dim_mm - 2 * offset) / (n - 1) for i in range(n)]
-
-
-def _support_lines_from_legs(n_legs: int, n_bars: int, dim_mm: float,
-                              cover_mm: float, tie_db_mm: float, bar_db_mm: float) -> str:
-    positions = _bar_positions(n_bars, dim_mm, cover_mm, tie_db_mm, bar_db_mm)
-    if not positions:
-        return ''
-    n_legs = max(2, min(n_legs, len(positions)))
-    if n_legs >= len(positions):
-        return ';'.join(f'{p:.0f}' for p in positions)
-    m = len(positions) - 1
-    indices = sorted({round(i * m / (n_legs - 1)) for i in range(n_legs)})
-    return ';'.join(f'{positions[i]:.0f}' for i in indices)
+# Shared with the CLI project-JSON converter (io_utils.write_project_csvs).
+from io_utils import bar_positions as _bar_positions
+from io_utils import support_lines_from_legs as _support_lines_from_legs
 
 
 def _hx_from_legs(n_legs: int, n_bars: int, dim_mm: float,
@@ -596,6 +578,7 @@ def _write_column_beam_csv(path: Path) -> None:
             'joint_top':                      asm['joint_top'],
             'joint_bottom':                   asm['joint_bottom'],
             'yielding_region_expected':       asm['yielding_region_expected'],
+            'seismic_design_category':        asm.get('seismic_design_category', 'D'),
         }
         for face in BEAM_FACES:
             for side in ('side1', 'side2'):

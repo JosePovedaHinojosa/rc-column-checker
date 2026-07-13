@@ -1,6 +1,6 @@
 # RC Column Checker
 
-A structural verification tool for reinforced concrete columns under seismic loading. Available as a **browser-based web app** (Streamlit) and a **command-line interface**. Implements **ACI 318-22** and **ASCE 41** checks, and produces CSV result tables, P-M interaction diagrams, cross-section sketches, and two PDF report formats: a concise summary report and a detailed step-by-step educational report — both generated with ReportLab (no LaTeX required).
+A structural verification tool for reinforced concrete columns under seismic loading. Available as a **browser-based web app** (Streamlit) and a **command-line interface**. Implements **ACI 318-25** and **ASCE 41** checks for all four column classes — **special (SMF), intermediate (IMF), and ordinary (OMF) moment frames, plus gravity columns (18.14)** — and produces CSV result tables, P-M interaction diagrams, cross-section sketches, and two PDF report formats: a concise summary report and a detailed step-by-step educational report — both generated with ReportLab (no LaTeX required).
 
 ---
 
@@ -24,13 +24,14 @@ A structural verification tool for reinforced concrete columns under seismic loa
    - [P-M Diagrams](#pm-diagrams)
    - [Reports (PDF)](#reports-pdf)
 9. [Implemented Checks](#implemented-checks)
-   - [ACI 318-22: Longitudinal Reinforcement](#aci-318-22-longitudinal-reinforcement)
-   - [ACI 318-22: Transverse Reinforcement](#aci-318-22-transverse-reinforcement)
-   - [ACI 318-22: Flexure and Axial Capacity](#aci-318-22-flexure-and-axial-capacity)
-   - [ACI 318-22: Seismic Shear](#aci-318-22-seismic-shear)
-   - [ACI 318-22: Strong Column Weak Beam](#aci-318-22-strong-column-weak-beam)
-   - [ACI 318-22: Joint Shear](#aci-318-22-joint-shear)
-   - [ACI 318-22: Gravity Columns (18.14.3.2)](#aci-318-22-gravity-columns-18143)
+   - [Frame types (SMF / IMF / OMF / Gravity)](#frame-types-smf--imf--omf--gravity)
+   - [ACI 318-25: Longitudinal Reinforcement](#aci-318-25-longitudinal-reinforcement)
+   - [ACI 318-25: Transverse Reinforcement](#aci-318-25-transverse-reinforcement)
+   - [ACI 318-25: Flexure and Axial Capacity](#aci-318-25-flexure-and-axial-capacity)
+   - [ACI 318-25: Seismic Shear](#aci-318-25-seismic-shear)
+   - [ACI 318-25: Strong Column Weak Beam](#aci-318-25-strong-column-weak-beam)
+   - [ACI 318-25: Joint Shear](#aci-318-25-joint-shear)
+   - [ACI 318-25: Gravity Columns (18.14.3)](#aci-318-25-gravity-columns-18143)
    - [ASCE 41: Plastic Rotation Acceptance Criteria](#asce-41-plastic-rotation-acceptance-criteria)
 10. [Code Architecture](#code-architecture)
 11. [Notes and Limitations](#notes-and-limitations)
@@ -39,14 +40,14 @@ A structural verification tool for reinforced concrete columns under seismic loa
 
 ## What It Does
 
-RC Column Checker takes four CSV input files (or equivalent data entered through the GUI) describing column sections, beam sections, column-to-beam joint assemblies, and load combinations. For each column under each load case, it:
+RC Column Checker takes a **project `.json` file** (the GUI save format) or four CSV input files describing column sections, beam sections, column-to-beam joint assemblies, and load combinations. For each column under each load case, it:
 
 - Computes geometric properties (gross area, confined core area, reinforcement ratios, maximum unsupported bar spacing).
 - Builds the biaxial P-M interaction surface using strain-compatibility analysis with a Whitney stress block.
 - Calculates nominal, probable, and design-level flexural and shear capacities.
-- Evaluates beam-column joint shear demand and capacity.
-- Applies the strong-column weak-beam (SCWB) rule.
-- Runs all applicable ACI 318-22 detailing checks for longitudinal and transverse reinforcement.
+- Evaluates beam-column joint shear demand and capacity with the φ factor, Vn coefficient table, and demand basis (1.25fy vs fy) selected by frame type.
+- Applies the strong-column weak-beam (SCWB) rule (SMF columns).
+- Runs the ACI 318-25 detailing checks applicable to the column's frame type — SMF (18.7/18.8), IMF (18.4), OMF (18.3 + Ch. 10), or gravity (18.14).
 - Computes ASCE 41 plastic rotation parameters and checks demand against IO / LS / CP acceptance criteria.
 - Exports results to CSV tables, SVG/PDF/PNG P-M diagrams, cross-section sketch PNGs, and two PDF report formats.
 
@@ -86,56 +87,56 @@ No build step is needed. All calculation logic is in pure Python.
 
 ## Quick Start
 
-Run the bundled sample files:
+Run one of the bundled example projects (see [`inputs-tests/`](inputs-tests/)):
 
 ```bash
-python main.py ^
-  --column-sections sample_column_sections.csv ^
-  --beam-sections sample_beam_sections.csv ^
-  --column-beam sample_column_beam_prop.csv ^
-  --loads sample_loads.csv ^
-  --outdir outputs
+python main.py --project inputs-tests/smf_interior_column.json --outdir outputs
 ```
 
 This creates an `outputs/` directory containing:
 
 ```
 outputs/
-├── column_results.csv       # Capacity and demand summary (one row per load case)
-├── column_checks.csv        # All individual checks with status OK / NG / WARNING / INFO
-└── column_failures.csv      # Subset of checks with status NG or WARNING only
+├── _project_csvs/            # The four solver CSVs generated from the .json
+├── column_results.csv        # Capacity and demand summary (one row per load case)
+├── column_checks.csv         # All individual checks with status OK / NG / WARNING / INFO
+└── column_failures.csv       # Subset of checks with status NG or WARNING only
 ```
 
 With `--report-columns` or `--report-all`, additional subdirectories are created:
 
 ```
 outputs/
-├── column_results.csv
-├── column_checks.csv
-├── column_failures.csv
+├── ...
 ├── sections/
-│   └── COL150x100.png                   # Auto-generated cross-section sketch
+│   └── SMF-C1.png                       # Auto-generated cross-section sketch
 ├── pm_diagrams/
-│   ├── COL_150x100_PM_x.svg/.pdf/.png
-│   └── COL_150x100_PM_y.svg/.pdf/.png
+│   ├── SMF-C1_PM_x.svg/.pdf/.png
+│   └── SMF-C1_PM_y.svg/.pdf/.png
 └── latex_reports/
-    ├── COL150x100_memoria.pdf           # Summary report (ReportLab)
-    ├── COL150x100_memoria.tex           # LaTeX source (optional, for pdflatex)
-    └── COL150x100_detailed.pdf          # Step-by-step educational report (ReportLab)
+    ├── SMF-C1_memoria.pdf               # Summary report (ReportLab)
+    ├── SMF-C1_memoria.tex               # LaTeX source (optional, for pdflatex)
+    └── SMF-C1_detailed.pdf              # Step-by-step educational report (ReportLab)
 ```
 
 Generate PDF reports for all columns:
 
 ```bash
-python main.py ^
-  --column-sections sample_column_sections.csv ^
-  --beam-sections sample_beam_sections.csv ^
-  --column-beam sample_column_beam_prop.csv ^
-  --loads sample_loads.csv ^
-  --outdir outputs ^
-  --report-all ^
-  --pry-name "Project Name"
+python main.py --project inputs-tests/smf_interior_column.json --outdir outputs --report-all --detailed-report-all
 ```
+
+The four CSVs can still be passed individually instead of `--project` (see [CLI Arguments](#cli-arguments)).
+
+### Example projects (`inputs-tests/`)
+
+One realistic case per ACI 318-25 column class — open them in the GUI (**Load project**) or run them from the CLI with `--project`:
+
+| File | Frame type | Scenario |
+|---|---|---|
+| `smf_interior_column.json` | **SMF** | 600×600 interior column of an 8-story office (SDC D): Mpr shear, SCWB, Table 18.7.5.4 confinement, joint φ = 0.85 with 1.25fy demand, 18.8.2.3 joint depth |
+| `imf_edge_column.json` | **IMF** | 500×500 edge column, 4-story clinic (SDC C): Mn hinging shear (18.4.3.1a), 18.4.3.3 hoop limits, joint φ = 0.75 with fy demand |
+| `omf_lowrise_column.json` | **OMF** | 400×400 two-story commercial (SDC B), two columns: a slender one where 18.3.3 does not apply (ℓu > 5c1) and a squat basement column where it governs |
+| `gravity_column_sdc_d.json` | **Gravity** | 350×350 flat-plate parking column in an SDC D building: 18.14 full-height ties, Pu > 0.35Po trigger, drift-induced ASCE 41 rotation demand |
 
 ---
 
@@ -188,10 +189,11 @@ Use the **💾 Project file — save / load** panel above the tabs to export the
 
 | Argument | Required | Default | Description |
 |---|---|---|---|
-| `--column-sections PATH` | Yes | — | CSV library of column cross-sections |
-| `--beam-sections PATH` | Yes | — | CSV library of beam cross-sections |
-| `--column-beam PATH` | Yes | — | CSV of column instances and joint assemblies |
-| `--loads PATH` | Yes | — | CSV of load combinations per column |
+| `--project PATH` | Yes* | — | Project `.json` file (GUI save format); replaces the four CSV arguments |
+| `--column-sections PATH` | Yes* | — | CSV library of column cross-sections |
+| `--beam-sections PATH` | Yes* | — | CSV library of beam cross-sections |
+| `--column-beam PATH` | Yes* | — | CSV of column instances and joint assemblies |
+| `--loads PATH` | Yes* | — | CSV of load combinations per column |
 | `--outdir PATH` | No | `outputs` | Output directory (created if absent) |
 | `--skip-pm` | No | off | Skip P-M diagram generation |
 | `--report-columns COL1,COL2` | No | — | Generate reports only for listed `column_id` values |
@@ -200,6 +202,8 @@ Use the **💾 Project file — save / load** panel above the tabs to export the
 | `--hide-rotation-table` | No | off | Omit the ASCE 41 rotation table from summary reports |
 | `--hide-beam-table` | No | off | Omit the connected beam capacity table from summary reports |
 | `--hide-joint-table` | No | off | Omit the joint shear capacity table from summary reports |
+
+\* Provide either `--project` **or** all four CSV arguments.
 
 ---
 
@@ -213,7 +217,7 @@ The tool requires **four CSV files**. All use comma-separated format with a head
 
 Defines a reusable library of column cross-sections. One row per section ID.
 
-**Sample:** `sample_column_sections.csv`
+**Example:** generated automatically from any `inputs-tests/*.json` under `outputs/_project_csvs/col_sections.csv`
 
 #### Geometry and Materials
 
@@ -290,7 +294,7 @@ These define the positions of intermediate hoops and crossties along each face, 
 
 Defines a reusable library of beam cross-sections.
 
-**Sample:** `sample_beam_sections.csv`
+**Example:** generated automatically from any `inputs-tests/*.json` under `outputs/_project_csvs/beam_sections.csv`
 
 | Field | Type | Description |
 |---|---|---|
@@ -313,7 +317,7 @@ Defines a reusable library of beam cross-sections.
 
 One row per column instance. References a column section and defines the structural context.
 
-**Sample:** `sample_column_beam_prop.csv`
+**Example:** generated automatically from any `inputs-tests/*.json` under `outputs/_project_csvs/col_beam.csv`
 
 #### Column Identity and Context
 
@@ -354,7 +358,7 @@ For each `{face}_{side}` combination (e.g., `beam_top_x_side1`):
 
 One row per load combination per column.
 
-**Sample:** `sample_loads.csv`
+**Example:** generated automatically from any `inputs-tests/*.json` under `outputs/_project_csvs/loads.csv`
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -461,21 +465,28 @@ Each calculation step shows: symbolic equation → substituted values → result
 
 ## Implemented Checks
 
-### ACI 318-22: Longitudinal Reinforcement
+### Frame types (SMF / IMF / OMF / Gravity)
+
+Every assembly declares a **frame type**, and the checker selects the applicable ACI 318-25 regime — capacity-design shear basis (Mpr vs Mn), joint φ and Vn coefficient table, tie rules, ρ limits, SCWB applicability, and the Vc = 0 rule. A consistency warning is raised when the frame type is weaker than the seismic design category allows (18.2.1.1). The complete check-by-check matrix, with clause references and the documented out-of-scope items, is in [`docs/aci318_25_column_checks.md`](docs/aci318_25_column_checks.md).
+
+The tables below describe the SMF path; the matrix documents how each row changes for IMF, OMF, and gravity columns.
+
+### ACI 318-25: Longitudinal Reinforcement
 
 | Check | Clause | Description |
 |---|---|---|
-| `min_dimension` | Project rule | Minimum column dimension ≥ `min_dim_required_mm` |
-| `rho_longitudinal_min` | ACI 10.6.1 | ρ_long ≥ ρ_min (default 1%) |
-| `rho_longitudinal_max` | ACI 10.6.1 | ρ_long ≤ ρ_max (default 8%) |
-| `n_bars_min_rect` | ACI 18.7.4 | At least 4 bars for rectangular sections |
+| `min_dimension` | ACI 18.7.2.1(a) | Shortest SMF column dimension ≥ 300 mm (project rule for other frames) |
+| `aspect_ratio` | ACI 18.7.2.1(b) | SMF only: shortest/perpendicular dimension ≥ 0.4 |
+| `rho_longitudinal_min` | ACI 18.7.4.1 / 10.6.1.1 | ρ_long ≥ 1% |
+| `rho_longitudinal_max` | ACI 18.7.4.1 / 10.6.1.1 | ρ_long ≤ **6%** (SMF and gravity SDC D–F) or 8% (IMF/OMF) |
+| `n_bars_min_rect` | ACI 10.7.3.1 | At least 4 bars for rectangular sections |
 | `bars_each_face_min` | Geometry | At least 2 bars per face |
-| `free_spacing_long_bars` | ACI 18.7.4.2 | Clear spacing between bars ≥ 40 mm |
+| `free_spacing_long_bars` | ACI 25.2.3 | Clear spacing between bars ≥ 40 mm |
 | `core_geometry_positive` | Derived | Confined core dimensions bc, hc must be positive |
 
 ---
 
-### ACI 318-22: Transverse Reinforcement
+### ACI 318-25: Transverse Reinforcement
 
 | Check | Clause | Description |
 |---|---|---|
@@ -485,13 +496,16 @@ Each calculation step shows: symbolic equation → substituted values → result
 | `crosstie_alternate_anchorage` | ACI 18.7.5.2(c) | Consecutive crossties alternated end-for-end |
 | `hx_general_limit` | ACI 18.7.5.2(e) | Maximum unsupported bar spacing ≤ 350 mm |
 | `hx_special_limit` | ACI 18.7.5.2(f) | Reduced limit of 200 mm when Pu > 0.3 Ag f'c or f'c > 70 MPa |
-| `tie_spacing_within_lo` | ACI 18.7.5.3 | Spacing within lo ≤ min(b/4, 6db, so) |
+| `tie_spacing_within_lo` | ACI 18.7.5.3 | Spacing within lo ≤ min(b/4, 6db [5db Gr. 550], so) |
 | `tie_spacing_outside_lo` | ACI 18.7.5.5 | Spacing outside lo ≤ min(150, 6db) mm |
-| `rho_s_x_required` / `rho_s_y_required` | ACI Table 18.7.5.4 | Transverse ratio ≥ max of expressions (a), (b), (c) |
+| `rho_s_x_required` / `rho_s_y_required` | ACI Table 18.7.5.4 | Transverse ratio ≥ governing table expression (kf·kn only in expr. (c)) |
+| `imf_*` family | ACI 18.4.3.3 / 18.4.3.5 | IMF: hoop spacing min(8db, 200) Gr. 420 within lo = max(lu/6, max(b,h), 450); Table 10.7.6.5.2 outside |
+| `omf_*` family | ACI 25.7.2.1(b) / 25.7.2.2 | OMF: general ties min(16db, 48dbt, least dim) full height, minimum tie size |
+| `sdc_frame_type_consistency` | ACI 18.2.1.1 | Warns if frame type is weaker than the SDC permits (e.g. OMF in SDC C+) |
 
 ---
 
-### ACI 318-22: Flexure and Axial Capacity
+### ACI 318-25: Flexure and Axial Capacity
 
 Capacity is computed using **strain compatibility** with:
 - Whitney rectangular stress block for concrete (α₁ = 0.85, β₁ per ACI Table 22.2.2.4.3).
@@ -505,29 +519,37 @@ For **probable strength**: fye = 1.25 × fy, φ = 1.0.
 
 ---
 
-### ACI 318-22: Seismic Shear
+### ACI 318-25: Seismic Shear
 
-Ve = (Mpr_top + Mpr_bottom) / lu
+- **SMF / gravity (18.7.6.1 / 18.14.3.2(b)):** Ve = (Mpr_top + Mpr_bottom) / lu, capped by the beam joint Mpr and never less than the analysis shear.
+- **IMF (18.4.3.1(a)):** Ve = (Mn_top + Mn_bottom) / lu.
+- **OMF (18.3.3(a)):** same as IMF, but required only for columns with lu ≤ 5c1.
 
-**Vc = 0 rule** (ACI 18.7.6.2.1) applies when Ve ≥ 0.5 × Vu_design **and** Pu < Ag × f'c / 20.
-
----
-
-### ACI 318-22: Strong Column Weak Beam
-
-ΣMnc ≥ 1.2 × ΣMnb  (ACI 18.7.3.2)
+**Vc = 0 rule** (ACI 18.7.6.2.1, SMF/gravity only) applies when Ve ≥ 0.5 × Vu_design **and** Pu < Ag × f'c / 20.
 
 ---
 
-### ACI 318-22: Joint Shear
+### ACI 318-25: Strong Column Weak Beam
 
-Vn = αj × √f'c × Aj  (ACI 15.4.2.1)
-
-αj = 1.7 (confined on 4 sides) / 1.3 (3 sides or opposite) / 1.0–0.7 (otherwise), per ACI Table 15.4.2.3.
+ΣMnc ≥ 1.2 × ΣMnb  (ACI 18.7.3.2) — SMF columns only.
 
 ---
 
-### ACI 318-22: Gravity Columns (18.14.3)
+### ACI 318-25: Joint Shear
+
+Vn = αj × √f'c × Aj with the coefficient table and φ selected by frame type:
+
+| Frame | Demand basis | Vn table | φ |
+|---|---|---|---|
+| SMF | beam tension at **1.25fy** + column Mpr shear (18.8.2.1 / 18.8.4.1) | Table 18.8.4.3 (1.7 / 1.3 / 1.0 / 0.7) | 0.85 (21.2.4.4) |
+| IMF | beam tension at fy (18.4.4.7.2) | Table 18.8.4.3 | 0.75 |
+| OMF / Gravity | beam tension at fy (18.3.4 / 15.4.2.1(b)) | Table 15.5.2.1 (2.0 / 1.7 / 1.3 / 1.0) | 0.75 |
+
+For two-sided joints the beam tension is the critical seismic scenario max(T_neg,s1 + T_pos,s2 ; T_pos,s1 + T_neg,s2). SMF joints additionally check the joint depth against 20db (Gr. 420) / 26db (Gr. 550) of the largest beam bar (18.8.2.3).
+
+---
+
+### ACI 318-25: Gravity Columns (18.14.3)
 
 For gravity-frame columns in SDC D/E/F, a simplified transverse check is applied per ACI 18.14.3.2. Additional requirements are triggered when Pu > 0.35 × Po.
 
@@ -555,11 +577,12 @@ Demand/capacity ratio: |θd| / θcap ≤ 1.0.
 rc-column-checker/
 ├── main.py                      # CLI entry point; orchestration, result assembly
 ├── app.py                       # Streamlit GUI
-├── io_utils.py                  # CSV reading, validation, section/instance merging
+├── io_utils.py                  # CSV reading, validation, project-JSON -> CSV conversion
 ├── geometry_utils.py            # Geometric properties (Ag, Ach, As, hx, rho_s)
 ├── section_capacity.py          # Strain-compatibility, interaction curves, shear/joint
+├── frame_types.py               # SMF / IMF / OMF / GRAVITY classification
 ├── aci_longitudinal_checks.py   # ACI longitudinal detailing checks
-├── aci_transverse_checks.py     # ACI transverse detailing checks
+├── aci_transverse_checks.py     # ACI transverse detailing checks (per frame type)
 ├── asce41_rotation.py           # ASCE 41 Table 10-8 plastic rotation
 ├── pm_diagram.py                # P-M diagram + cross-section sketch (matplotlib)
 ├── reporting.py                 # LaTeX report assembly
@@ -568,10 +591,13 @@ rc-column-checker/
 ├── constants.py                 # All normative constants with code clause references
 ├── requirements.txt
 ├── .python-version              # Pins Python 3.11 for Streamlit Cloud
-├── sample_column_sections.csv
-├── sample_beam_sections.csv
-├── sample_column_beam_prop.csv
-├── sample_loads.csv
+├── inputs-tests/                # Example projects: one .json per frame type
+│   ├── smf_interior_column.json
+│   ├── imf_edge_column.json
+│   ├── omf_lowrise_column.json
+│   └── gravity_column_sdc_d.json
+├── docs/
+│   └── aci318_25_column_checks.md   # Check matrix by frame type
 ├── templates/                   # LaTeX report template
 └── assets/
     ├── logo_black_horizontal.png        # Black logo for LaTeX report headers
@@ -582,12 +608,12 @@ rc-column-checker/
 ### Data Flow
 
 ```
-4 CSV inputs
-    │
-    ▼
-io_utils.read_inputs()
-    │
-    ▼
+project .json ──io_utils.write_project_csvs()──► 4 CSV inputs
+                                                     │
+                                                     ▼
+                                          io_utils.read_inputs()
+                                                     │
+                                                     ▼
 For each column:
     ├─ compute_geometry()              → Ag, Ach, As, rho_long, hx, bar positions
     ├─ compute_beam_actions()          → beam flexural capacities per joint face

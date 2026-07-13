@@ -118,6 +118,131 @@ def _read_csv(path: str | Path) -> List[Dict[str, str]]:
         return list(csv.DictReader(f))
 
 
+# ---------------------------------------------------------------------------
+# Project JSON (GUI save format) -> solver CSVs
+# ---------------------------------------------------------------------------
+
+def bar_positions(n: int, dim_mm: float, cover_mm: float,
+                  tie_db_mm: float, bar_db_mm: float) -> List[float]:
+    if n <= 0:
+        return []
+    offset = cover_mm + tie_db_mm + bar_db_mm / 2.0
+    if n == 1:
+        return [dim_mm / 2.0]
+    return [offset + i * (dim_mm - 2 * offset) / (n - 1) for i in range(n)]
+
+
+def support_lines_from_legs(n_legs: int, n_bars: int, dim_mm: float,
+                            cover_mm: float, tie_db_mm: float, bar_db_mm: float) -> str:
+    positions = bar_positions(n_bars, dim_mm, cover_mm, tie_db_mm, bar_db_mm)
+    if not positions:
+        return ''
+    n_legs = max(2, min(n_legs, len(positions)))
+    if n_legs >= len(positions):
+        return ';'.join(f'{p:.0f}' for p in positions)
+    m = len(positions) - 1
+    indices = sorted({round(i * m / (n_legs - 1)) for i in range(n_legs)})
+    return ';'.join(f'{positions[i]:.0f}' for i in indices)
+
+
+def _write_dict_rows(path: Path, rows: List[Dict[str, object]]) -> None:
+    with path.open('w', newline='', encoding='utf-8') as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+
+
+def write_project_csvs(data: Dict[str, object], outdir: str | Path) -> Dict[str, Path]:
+    """Convert a project dict (the GUI .json save format, version 1) into the four
+    solver CSVs under `outdir`. Returns the paths keyed by CLI argument name."""
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    sec_rows: List[Dict[str, object]] = []
+    for sec in data['column_sections']:
+        n_lx = max(2, min(int(sec['n_legs_x']), int(sec['n_bars_x_top'])))
+        n_ly = max(2, min(int(sec['n_legs_y']), int(sec['n_bars_y_left'])))
+        sec_rows.append({
+            'column_section_id':             sec['section_id'],
+            'b_mm':                          sec['b_mm'],
+            'h_mm':                          sec['h_mm'],
+            'cover_mm':                      sec['cover_mm'],
+            'fc_MPa':                        sec['fc_MPa'],
+            'fy_long_MPa':                   sec['fy_long_MPa'],
+            'fy_trans_MPa':                  sec['fy_trans_MPa'],
+            'n_bars_x_top':                  sec['n_bars_x_top'],
+            'n_bars_x_bottom':               sec['n_bars_x_bottom'],
+            'n_bars_y_left':                 sec['n_bars_y_left'],
+            'n_bars_y_right':                sec['n_bars_y_right'],
+            'bar_db_mm':                     sec['bar_db_mm'],
+            'tie_type':                      sec['tie_type'],
+            'tie_db_mm':                     sec['tie_db_mm'],
+            'tie_spacing_lo_mm':             sec['tie_spacing_lo_mm'],
+            'tie_spacing_outside_lo_mm':     sec['tie_spacing_outside_lo_mm'],
+            'crosstie_db_mm':                sec['crosstie_db_mm'],
+            'hook_angle_deg':                int(sec['hook_angle_deg']),
+            'crosstie_alt_anchorage':        sec['crosstie_alt_anchorage'],
+            'overlapping_hoops':             sec['overlapping_hoops'],
+            'spiral_provided':               sec['spiral_provided'],
+            'support_lines_top_mm':          support_lines_from_legs(n_lx, int(sec['n_bars_x_top']),    float(sec['b_mm']), float(sec['cover_mm']), float(sec['tie_db_mm']), float(sec['bar_db_mm'])),
+            'support_lines_bottom_mm':       support_lines_from_legs(n_lx, int(sec['n_bars_x_bottom']), float(sec['b_mm']), float(sec['cover_mm']), float(sec['tie_db_mm']), float(sec['bar_db_mm'])),
+            'support_lines_left_mm':         support_lines_from_legs(n_ly, int(sec['n_bars_y_left']),   float(sec['h_mm']), float(sec['cover_mm']), float(sec['tie_db_mm']), float(sec['bar_db_mm'])),
+            'support_lines_right_mm':        support_lines_from_legs(n_ly, int(sec['n_bars_y_right']),  float(sec['h_mm']), float(sec['cover_mm']), float(sec['tie_db_mm']), float(sec['bar_db_mm'])),
+            'asce_splice_controlled':        sec['asce_splice_controlled'],
+            'asce_splice_two_tie_groups':    sec['asce_splice_two_tie_groups'],
+            'asce_ties_adequately_anchored': sec['asce_ties_adequately_anchored'],
+        })
+
+    beam_rows = list(data.get('beam_sections') or [])
+    if not beam_rows:
+        beam_rows = [dict(beam_section_id='_NONE', bw_mm=200, h_mm=400, cover_mm=40,
+                          fc_MPa=28, fy_long_MPa=420, fy_trans_MPa=420,
+                          n_bars_top=2, db_top_mm=12, n_bars_bot=2, db_bot_mm=12,
+                          stirrup_db_mm=8)]
+
+    cb_rows: List[Dict[str, object]] = []
+    load_rows: List[Dict[str, object]] = []
+    for asm in data['assemblies']:
+        row: Dict[str, object] = {
+            'column_id':                      asm['col_id'],
+            'story':                          asm['story'],
+            'frame_type':                     asm['frame_type'],
+            'column_section_id':              asm['col_section_id'],
+            'clear_height_mm':                asm['clear_height_mm'],
+            'top_other_column_section_id':    asm['top_other_col_id'],
+            'bottom_other_column_section_id': asm['bottom_other_col_id'],
+            'joint_top':                      asm['joint_top'],
+            'joint_bottom':                   asm['joint_bottom'],
+            'yielding_region_expected':       asm['yielding_region_expected'],
+            'seismic_design_category':        asm.get('seismic_design_category', 'D'),
+        }
+        for face in BEAM_FACES:
+            for side in BEAM_SIDES:
+                k = f'{face}_{side}'
+                bfd = asm['beam_faces'][k]
+                row[f'{k}_section_id']  = bfd['section_id']
+                row[f'{k}_ln_mm']       = bfd['ln_mm']
+                row[f'{k}_wu_kN_per_m'] = bfd['wu_kN_per_m']
+                row[f'{k}_x_mm']        = bfd['x_mm']
+                row[f'{k}_ext_mm']      = bfd['ext_mm']
+                row[f'{k}_continuous']  = bfd['continuous']
+        cb_rows.append(row)
+        for lc in asm['load_cases']:
+            load_rows.append({'column_id': asm['col_id'], **lc})
+
+    paths = {
+        'column_sections': outdir / 'col_sections.csv',
+        'beam_sections':   outdir / 'beam_sections.csv',
+        'column_beam':     outdir / 'col_beam.csv',
+        'loads':           outdir / 'loads.csv',
+    }
+    _write_dict_rows(paths['column_sections'], sec_rows)
+    _write_dict_rows(paths['beam_sections'], beam_rows)
+    _write_dict_rows(paths['column_beam'], cb_rows)
+    _write_dict_rows(paths['loads'], load_rows)
+    return paths
+
+
 def _normalize_text(text: object) -> str:
     return str(text).strip()
 

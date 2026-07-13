@@ -10,7 +10,7 @@ from asce41_rotation import compute_asce41_rotation
 from constants import ACI_JOINT_DEPTH_DB_G420, ACI_JOINT_DEPTH_DB_G550, ACI_OMF_SHEAR_LU_C1_FACTOR
 from frame_types import GRAVITY, IMF, OMF, SMF, frame_class
 from geometry_utils import compute_geometry
-from io_utils import read_inputs
+from io_utils import read_inputs, write_project_csvs
 from pdf_report import build_pdf_report
 from pdf_report_detailed import build_detailed_pdf_report
 from pm_diagram import export_pm_diagram, export_section_sketch
@@ -111,10 +111,11 @@ def resolve_other_column_mnc(section_ref, run_row, axis, column_sections_map, ca
 
 def main():
     parser = argparse.ArgumentParser(description='ACI RC column checker v18 with cleaned inputs, optional report sections, and robust empty-table rendering.')
-    parser.add_argument('--column-sections', required=True, help='Path to column-sections CSV')
-    parser.add_argument('--beam-sections', required=True, help='Path to beam-sections CSV')
-    parser.add_argument('--column-beam', required=True, help='Path to column-beam-prop CSV')
-    parser.add_argument('--loads', required=True, help='Path to loads CSV')
+    parser.add_argument('--project', default='', help='Path to a project .json file (GUI save format); replaces the four CSV arguments')
+    parser.add_argument('--column-sections', default='', help='Path to column-sections CSV')
+    parser.add_argument('--beam-sections', default='', help='Path to beam-sections CSV')
+    parser.add_argument('--column-beam', default='', help='Path to column-beam-prop CSV')
+    parser.add_argument('--loads', default='', help='Path to loads CSV')
     parser.add_argument('--outdir', default='outputs', help='Output directory')
     parser.add_argument('--skip-pm', action='store_true', help='Skip P-M plot export')
     parser.add_argument('--report-columns', default='', help='Comma-separated column_id values to generate summary reports')
@@ -126,6 +127,23 @@ def main():
     parser.add_argument('--hide-beam-table', action='store_true', help='Hide the connected beam capacities table in LaTeX reports')
     parser.add_argument('--hide-joint-table', action='store_true', help='Hide the joint capacity table in LaTeX reports')
     args = parser.parse_args()
+
+    if args.project:
+        import json
+        with open(args.project, encoding='utf-8') as f:
+            data = json.load(f)
+        if data.get('version') not in (1,):
+            parser.error(f"Unsupported project file version in '{args.project}' (expected 1).")
+        csv_paths = write_project_csvs(data, Path(args.outdir) / '_project_csvs')
+        args.column_sections = str(csv_paths['column_sections'])
+        args.beam_sections = str(csv_paths['beam_sections'])
+        args.column_beam = str(csv_paths['column_beam'])
+        args.loads = str(csv_paths['loads'])
+        if not args.pry_name:
+            args.pry_name = str(data.get('project_name', ''))
+    elif not all([args.column_sections, args.beam_sections, args.column_beam, args.loads]):
+        parser.error('Provide either --project <file.json> or all four CSV arguments '
+                     '(--column-sections, --beam-sections, --column-beam, --loads).')
 
     columns_map, rows, column_sections_map, beam_sections_map, column_beam_map = read_inputs(args.column_sections, args.beam_sections, args.column_beam, args.loads)
     grouped = defaultdict(list)
@@ -201,10 +219,13 @@ def main():
                         db_factor = ACI_JOINT_DEPTH_DB_G420 if float(prop_row['fy_long_MPa']) <= 420.0 else ACI_JOINT_DEPTH_DB_G550
                         h_joint = float(joint_static[f'joint_{joint}_{axis}_h_joint_mm'])
                         add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_depth_20db', h_joint, db_factor * db_beam_max, 'ACI 18.8.2.3', f'Joint depth parallel to beam bars vs {db_factor:.0f}db of largest beam bar (db = {db_beam_max:.0f} mm) passing through the joint.')
-                add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_a', 1.0 if joint_static[f'joint_{joint}_{axis}_cond_a'] else 0.0, 1.0, 'ACI 15.5.2.5(a)', 'Transverse beam width coverage criterion.')
-                add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_b', 1.0 if joint_static[f'joint_{joint}_{axis}_cond_b'] else 0.0, 1.0, 'ACI 15.5.2.5(b)', 'Transverse beam area coverage criterion.')
-                add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_c', 1.0 if joint_static[f'joint_{joint}_{axis}_cond_c'] else 0.0, 1.0, 'ACI 15.5.2.5(c)', 'Transverse beam extension beyond joint face.')
-                add_min_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_d', 1.0 if joint_static[f'joint_{joint}_{axis}_cond_d'] else 0.0, 1.0, 'ACI 15.5.2.5(d)', 'Transverse beam longitudinal bars and stirrups.')
+                # 15.5.2.5(a)-(d) classify the joint as confined/unconfined for the
+                # Vn coefficient table; failing them is not a code violation, so
+                # they are reported as INFO, not NG.
+                add_info_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_a', 'Y' if joint_static[f'joint_{joint}_{axis}_cond_a'] else 'N', 'ACI 15.5.2.5(a)', 'Transverse beam width coverage criterion (joint confinement classification).')
+                add_info_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_b', 'Y' if joint_static[f'joint_{joint}_{axis}_cond_b'] else 'N', 'ACI 15.5.2.5(b)', 'Transverse beam area coverage criterion (joint confinement classification).')
+                add_info_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_c', 'Y' if joint_static[f'joint_{joint}_{axis}_cond_c'] else 'N', 'ACI 15.5.2.5(c)', 'Transverse beam extension beyond joint face (joint confinement classification).')
+                add_info_check(static_checks, info_row, f'joint_{joint}_{axis}_15.5.2.5_d', 'Y' if joint_static[f'joint_{joint}_{axis}_cond_d'] else 'N', 'ACI 15.5.2.5(d)', 'Transverse beam longitudinal bars and stirrups (joint confinement classification).')
 
         check_rows.extend(static_checks)
 

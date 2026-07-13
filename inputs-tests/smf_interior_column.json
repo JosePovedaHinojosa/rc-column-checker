@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "project_name": "Blog demo - SMF interior column (SDC D)",
+  "column_sections": [
+    {
+      "section_id": "SMF-C60X60",
+      "b_mm": 600,
+      "h_mm": 600,
+      "cover_mm": 40.0,
+      "fc_MPa": 35.0,
+      "fy_long_MPa": 420.0,
+      "fy_trans_MPa": 420.0,
+      "n_bars_x_top": 4,
+      "n_bars_x_bottom": 4,
+      "n_bars_y_left": 4,
+      "n_bars_y_right": 4,
+      "bar_db_mm": 25.0,
+      "tie_type": "rectilinear",
+      "tie_db_mm": 12.0,
+      "tie_spacing_lo_mm": 100.0,
+      "tie_spacing_outside_lo_mm": 150.0,
+      "crosstie_db_mm": 12.0,
+      "hook_angle_deg": 135.0,
+      "crosstie_alt_anchorage": true,
+      "overlapping_hoops": false,
+      "spiral_provided": false,
+      "asce_splice_controlled": false,
+      "asce_splice_two_tie_groups": true,
+      "asce_ties_adequately_anchored": true,
+      "n_legs_x": 4,
+      "n_legs_y": 4
+    }
+  ],
+  "beam_sections": [
+    {
+      "beam_section_id": "SMF-B35X60",
+      "bw_mm": 350,
+      "h_mm": 600,
+      "cover_mm": 40.0,
+      "fc_MPa": 35.0,
+      "fy_long_MPa": 420.0,
+      "fy_trans_MPa": 420.0,
+      "n_bars_top": 5,
+      "db_top_mm": 20.0,
+      "n_bars_bot": 3,
+      "db_bot_mm": 20.0,
+      "stirrup_db_mm": 10.0
+    }
+  ],
+  "assemblies": [
+    {
+      "col_id": "SMF-C1",
+      "col_section_id": "SMF-C60X60",
+      "story": "3",
+      "frame_type": "SMF",
+      "clear_height_mm": 3050.0,
+      "top_other_col_id": "same",
+      "bottom_other_col_id": "same",
+      "joint_top": true,
+      "joint_bottom": true,
+      "yielding_region_expected": true,
+      "seismic_design_category": "D",
+      "beam_faces": {
+        "beam_top_x_side1": {
+          "section_id": "SMF-B35X60",
+          "ln_mm": 5400.0,
+          "wu_kN_per_m": 32.0,
+          "x_mm": 125.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_top_x_side2": {
+          "section_id": "SMF-B35X60",
+          "ln_mm": 5400.0,
+          "wu_kN_per_m": 32.0,
+          "x_mm": 125.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_x_side1": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_x_side2": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_top_y_side1": {
+          "section_id": "SMF-B35X60",
+          "ln_mm": 5400.0,
+          "wu_kN_per_m": 30.0,
+          "x_mm": 125.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_top_y_side2": {
+          "section_id": "SMF-B35X60",
+          "ln_mm": 5400.0,
+          "wu_kN_per_m": 30.0,
+          "x_mm": 125.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_y_side1": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_y_side2": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        }
+      },
+      "load_cases": [
+        {
+          "load_case": "1.2D+1.6L",
+          "Pu_kN": 2600.0,
+          "Mux_kNm": 45.0,
+          "Muy_kNm": 40.0,
+          "Vux_kN": 30.0,
+          "Vuy_kN": 25.0,
+          "RotX": 0.0,
+          "RotY": 0.0,
+          "damage_state": "CP"
+        },
+        {
+          "load_case": "1.2D+L+Ex",
+          "Pu_kN": 2250.0,
+          "Mux_kNm": 340.0,
+          "Muy_kNm": 60.0,
+          "Vux_kN": 190.0,
+          "Vuy_kN": 35.0,
+          "RotX": 0.006,
+          "RotY": 0.001,
+          "damage_state": "CP"
+        },
+        {
+          "load_case": "1.2D+L-Ex",
+          "Pu_kN": 1750.0,
+          "Mux_kNm": 320.0,
+          "Muy_kNm": 55.0,
+          "Vux_kN": 180.0,
+          "Vuy_kN": 30.0,
+          "RotX": 0.006,
+          "RotY": 0.001,
+          "damage_state": "CP"
+        },
+        {
+          "load_case": "1.2D+L+Ey",
+          "Pu_kN": 2200.0,
+          "Mux_kNm": 70.0,
+          "Muy_kNm": 310.0,
+          "Vux_kN": 40.0,
+          "Vuy_kN": 175.0,
+          "RotX": 0.001,
+          "RotY": 0.005,
+          "damage_state": "CP"
+        },
+        {
+          "load_case": "0.9D+Ex",
+          "Pu_kN": 950.0,
+          "Mux_kNm": 300.0,
+          "Muy_kNm": 50.0,
+          "Vux_kN": 170.0,
+          "Vuy_kN": 25.0,
+          "RotX": 0.006,
+          "RotY": 0.0,
+          "damage_state": "CP"
+        }
+      ]
+    }
+  ]
+}

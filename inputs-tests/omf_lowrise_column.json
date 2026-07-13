@@ -1,0 +1,269 @@
+{
+  "version": 1,
+  "project_name": "Blog demo - OMF low-rise (SDC B)",
+  "column_sections": [
+    {
+      "section_id": "OMF-C40X40",
+      "b_mm": 400,
+      "h_mm": 400,
+      "cover_mm": 40.0,
+      "fc_MPa": 21.0,
+      "fy_long_MPa": 420.0,
+      "fy_trans_MPa": 420.0,
+      "n_bars_x_top": 3,
+      "n_bars_x_bottom": 3,
+      "n_bars_y_left": 3,
+      "n_bars_y_right": 3,
+      "bar_db_mm": 20.0,
+      "tie_type": "rectilinear",
+      "tie_db_mm": 10.0,
+      "tie_spacing_lo_mm": 125.0,
+      "tie_spacing_outside_lo_mm": 200.0,
+      "crosstie_db_mm": 10.0,
+      "hook_angle_deg": 135.0,
+      "crosstie_alt_anchorage": true,
+      "overlapping_hoops": false,
+      "spiral_provided": false,
+      "asce_splice_controlled": false,
+      "asce_splice_two_tie_groups": true,
+      "asce_ties_adequately_anchored": true,
+      "n_legs_x": 3,
+      "n_legs_y": 3
+    }
+  ],
+  "beam_sections": [
+    {
+      "beam_section_id": "OMF-B25X45",
+      "bw_mm": 250,
+      "h_mm": 450,
+      "cover_mm": 40.0,
+      "fc_MPa": 21.0,
+      "fy_long_MPa": 420.0,
+      "fy_trans_MPa": 420.0,
+      "n_bars_top": 3,
+      "db_top_mm": 16.0,
+      "n_bars_bot": 2,
+      "db_bot_mm": 16.0,
+      "stirrup_db_mm": 10.0
+    }
+  ],
+  "assemblies": [
+    {
+      "col_id": "OMF-C1-TYPICAL",
+      "col_section_id": "OMF-C40X40",
+      "story": "1",
+      "frame_type": "OMF",
+      "clear_height_mm": 3300.0,
+      "top_other_col_id": "same",
+      "bottom_other_col_id": "same",
+      "joint_top": true,
+      "joint_bottom": true,
+      "yielding_region_expected": false,
+      "seismic_design_category": "B",
+      "beam_faces": {
+        "beam_top_x_side1": {
+          "section_id": "OMF-B25X45",
+          "ln_mm": 4750.0,
+          "wu_kN_per_m": 18.0,
+          "x_mm": 75.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_top_x_side2": {
+          "section_id": "OMF-B25X45",
+          "ln_mm": 4750.0,
+          "wu_kN_per_m": 18.0,
+          "x_mm": 75.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_x_side1": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_x_side2": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_top_y_side1": {
+          "section_id": "OMF-B25X45",
+          "ln_mm": 3750.0,
+          "wu_kN_per_m": 15.0,
+          "x_mm": 75.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_top_y_side2": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_y_side1": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_y_side2": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        }
+      },
+      "load_cases": [
+        {
+          "load_case": "1.2D+1.6L",
+          "Pu_kN": 800.0,
+          "Mux_kNm": 30.0,
+          "Muy_kNm": 25.0,
+          "Vux_kN": 15.0,
+          "Vuy_kN": 12.0,
+          "RotX": 0.0,
+          "RotY": 0.0,
+          "damage_state": "CP"
+        },
+        {
+          "load_case": "1.2D+L+Ex",
+          "Pu_kN": 700.0,
+          "Mux_kNm": 90.0,
+          "Muy_kNm": 20.0,
+          "Vux_kN": 45.0,
+          "Vuy_kN": 10.0,
+          "RotX": 0.0,
+          "RotY": 0.0,
+          "damage_state": "CP"
+        },
+        {
+          "load_case": "0.9D+Ex",
+          "Pu_kN": 350.0,
+          "Mux_kNm": 80.0,
+          "Muy_kNm": 15.0,
+          "Vux_kN": 40.0,
+          "Vuy_kN": 8.0,
+          "RotX": 0.0,
+          "RotY": 0.0,
+          "damage_state": "CP"
+        }
+      ]
+    },
+    {
+      "col_id": "OMF-C2-SQUAT",
+      "col_section_id": "OMF-C40X40",
+      "story": "B1",
+      "frame_type": "OMF",
+      "clear_height_mm": 1800.0,
+      "top_other_col_id": "same",
+      "bottom_other_col_id": "none",
+      "joint_top": true,
+      "joint_bottom": false,
+      "yielding_region_expected": false,
+      "seismic_design_category": "B",
+      "beam_faces": {
+        "beam_top_x_side1": {
+          "section_id": "OMF-B25X45",
+          "ln_mm": 4750.0,
+          "wu_kN_per_m": 18.0,
+          "x_mm": 75.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_top_x_side2": {
+          "section_id": "OMF-B25X45",
+          "ln_mm": 4750.0,
+          "wu_kN_per_m": 18.0,
+          "x_mm": 75.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_x_side1": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_x_side2": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_top_y_side1": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_top_y_side2": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_y_side1": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_y_side2": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        }
+      },
+      "load_cases": [
+        {
+          "load_case": "1.2D+1.6L",
+          "Pu_kN": 950.0,
+          "Mux_kNm": 25.0,
+          "Muy_kNm": 20.0,
+          "Vux_kN": 20.0,
+          "Vuy_kN": 10.0,
+          "RotX": 0.0,
+          "RotY": 0.0,
+          "damage_state": "CP"
+        },
+        {
+          "load_case": "1.2D+L+Ex",
+          "Pu_kN": 850.0,
+          "Mux_kNm": 70.0,
+          "Muy_kNm": 15.0,
+          "Vux_kN": 95.0,
+          "Vuy_kN": 8.0,
+          "RotX": 0.0,
+          "RotY": 0.0,
+          "damage_state": "CP"
+        }
+      ]
+    }
+  ]
+}

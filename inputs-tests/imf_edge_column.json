@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "project_name": "Blog demo - IMF edge column (SDC C)",
+  "column_sections": [
+    {
+      "section_id": "IMF-C50X50",
+      "b_mm": 500,
+      "h_mm": 500,
+      "cover_mm": 40.0,
+      "fc_MPa": 28.0,
+      "fy_long_MPa": 420.0,
+      "fy_trans_MPa": 420.0,
+      "n_bars_x_top": 3,
+      "n_bars_x_bottom": 3,
+      "n_bars_y_left": 3,
+      "n_bars_y_right": 3,
+      "bar_db_mm": 25.0,
+      "tie_type": "rectilinear",
+      "tie_db_mm": 10.0,
+      "tie_spacing_lo_mm": 125.0,
+      "tie_spacing_outside_lo_mm": 200.0,
+      "crosstie_db_mm": 10.0,
+      "hook_angle_deg": 135.0,
+      "crosstie_alt_anchorage": true,
+      "overlapping_hoops": false,
+      "spiral_provided": false,
+      "asce_splice_controlled": false,
+      "asce_splice_two_tie_groups": true,
+      "asce_ties_adequately_anchored": true,
+      "n_legs_x": 3,
+      "n_legs_y": 3
+    }
+  ],
+  "beam_sections": [
+    {
+      "beam_section_id": "IMF-B30X55",
+      "bw_mm": 300,
+      "h_mm": 550,
+      "cover_mm": 40.0,
+      "fc_MPa": 28.0,
+      "fy_long_MPa": 420.0,
+      "fy_trans_MPa": 420.0,
+      "n_bars_top": 4,
+      "db_top_mm": 20.0,
+      "n_bars_bot": 3,
+      "db_bot_mm": 18.0,
+      "stirrup_db_mm": 10.0
+    }
+  ],
+  "assemblies": [
+    {
+      "col_id": "IMF-C1",
+      "col_section_id": "IMF-C50X50",
+      "story": "2",
+      "frame_type": "IMF",
+      "clear_height_mm": 2850.0,
+      "top_other_col_id": "same",
+      "bottom_other_col_id": "same",
+      "joint_top": true,
+      "joint_bottom": true,
+      "yielding_region_expected": true,
+      "seismic_design_category": "C",
+      "beam_faces": {
+        "beam_top_x_side1": {
+          "section_id": "IMF-B30X55",
+          "ln_mm": 5700.0,
+          "wu_kN_per_m": 28.0,
+          "x_mm": 100.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_top_x_side2": {
+          "section_id": "IMF-B30X55",
+          "ln_mm": 5700.0,
+          "wu_kN_per_m": 28.0,
+          "x_mm": 100.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_x_side1": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_x_side2": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_top_y_side1": {
+          "section_id": "IMF-B30X55",
+          "ln_mm": 4700.0,
+          "wu_kN_per_m": 24.0,
+          "x_mm": 100.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_top_y_side2": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_y_side1": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        },
+        "beam_bottom_y_side2": {
+          "section_id": "none",
+          "ln_mm": 0.0,
+          "wu_kN_per_m": 0.0,
+          "x_mm": 0.0,
+          "ext_mm": 0.0,
+          "continuous": false
+        }
+      },
+      "load_cases": [
+        {
+          "load_case": "1.2D+1.6L",
+          "Pu_kN": 1500.0,
+          "Mux_kNm": 35.0,
+          "Muy_kNm": 30.0,
+          "Vux_kN": 20.0,
+          "Vuy_kN": 18.0,
+          "RotX": 0.0,
+          "RotY": 0.0,
+          "damage_state": "CP"
+        },
+        {
+          "load_case": "1.2D+L+Ex",
+          "Pu_kN": 1300.0,
+          "Mux_kNm": 220.0,
+          "Muy_kNm": 45.0,
+          "Vux_kN": 120.0,
+          "Vuy_kN": 25.0,
+          "RotX": 0.004,
+          "RotY": 0.001,
+          "damage_state": "CP"
+        },
+        {
+          "load_case": "1.2D+L+Ey",
+          "Pu_kN": 1280.0,
+          "Mux_kNm": 50.0,
+          "Muy_kNm": 200.0,
+          "Vux_kN": 25.0,
+          "Vuy_kN": 110.0,
+          "RotX": 0.001,
+          "RotY": 0.004,
+          "damage_state": "CP"
+        },
+        {
+          "load_case": "0.9D-Ex",
+          "Pu_kN": 600.0,
+          "Mux_kNm": 200.0,
+          "Muy_kNm": 40.0,
+          "Vux_kN": 110.0,
+          "Vuy_kN": 20.0,
+          "RotX": 0.004,
+          "RotY": 0.0,
+          "damage_state": "CP"
+        }
+      ]
+    }
+  ]
+}

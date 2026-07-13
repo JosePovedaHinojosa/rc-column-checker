@@ -338,8 +338,11 @@ def _s_joint(joint_static: dict, cases: list) -> list:
         _p('Vj,crit\n[kN]', bold=True), _p('D/C', bold=True), _p('15.5.2.5', bold=True),
     ]]
     # total = 15+9+26+12+12+20+20+22+16+22 = 174 mm = _INNER_W
+    table_ref = str(joint_static.get('joint_table_ref', 'ACI Table 18.8.4.3'))
+    phi_j = joint_static.get('phi_joint', 0.85)
     return [
         Paragraph('Joint Shear Capacity', _S_H2),
+        Paragraph(f'αj per {table_ref}  ·  φ = {phi_j} ({joint_static.get("joint_phi_ref", "ACI 21.2.4.4")})', _S_SMALL),
         _tbl(header + rows, [15*mm, 9*mm, 26*mm, 12*mm, 12*mm, 20*mm, 20*mm, 22*mm, 16*mm, 22*mm]),
         Spacer(1, 3 * mm),
     ]
