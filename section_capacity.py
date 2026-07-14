@@ -598,12 +598,15 @@ def shear_capacity_case(row: Dict[str, object], geom: Dict[str, object], probabl
     rule_applies = frame_class(row) not in (IMF, OMF)
     out = dict(base)
     out['vc_zero_cond_b'] = Pu_N < Ag * fc / ACI_VC_ZERO_AXIAL_DIVISOR
+    # Net axial tension degrades the concrete shear contribution (ACI 22.5.7);
+    # conservatively Vc = 0 for the load case, for every frame class.
+    out['vc_zero_tension'] = Pu_N < 0.0
     for axis in ['x', 'y']:
         Ve_eq = abs(float(probable_shear[f'Ve_col_{axis}_kN']))
         Vreq = abs(float(probable_shear[f'Ve_design_{axis}_kN']))
         cond_a = Ve_eq >= 0.5 * Vreq if Vreq > 0 else False
         apply = rule_applies and cond_a and out['vc_zero_cond_b']
-        Vc = 0.0 if apply else float(base[f'Vc_{axis}_kN'])
+        Vc = 0.0 if (apply or out['vc_zero_tension']) else float(base[f'Vc_{axis}_kN'])
         Vs = float(base[f'Vs_{axis}_kN'])
         out[f'vc_zero_cond_a_{axis}'] = cond_a
         out[f'vc_zero_applies_{axis}'] = apply

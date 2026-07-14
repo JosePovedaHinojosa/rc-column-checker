@@ -68,7 +68,10 @@ Status codes: ✅ implemented · 🔧 fixed/added in the 2026-07 frame-type upda
 | `scwb_top/bottom_x/y` (≥ 1.0 on ΣMnc/1.2ΣMnb) | SMF only | Mnc at case Pu both directions | 18.7.3.2 | 🔧 was run for IMF/OMF too |
 | `joint_*_shear_ratio` | all | see regime table | 18.8.4 / 18.4.4.7 / 18.3.4 / 15.5 | 🔧 φ, αj table and fy-factor now frame-dependent |
 | `joint_*_depth_20db` — h_joint ≥ 20db (G420) / 26db (G550) of largest beam bar | SMF | 18.8.2.3 | 🔧 new |
-| `joint_*_15.5.2.5_a..d` (transverse-beam confinement conditions) | all | Table 15.5.2.5 | ✅ |
+| `joint_*_15.5.2.5_a..d` (transverse-beam confinement conditions) | all | Table 15.5.2.5 | ✅ INFO only — classification for the Vn table, not a pass/fail requirement |
+| `Vc_zero_tension` — Vc = 0 in the case's shear capacity when Pu < 0 | all | ACI 22.5.7 (conservative) | 🔧 new (warning + capacity reduction) |
+| `tension_splice_development` — bars/splices must develop fye under net tension | all (Pu < 0) | ASCE 41 10.3.5 / ACI 25.4-25.5 | 🔧 new warning (stronger wording if `asce_splice_controlled`) |
+| `foundation_uplift` — uplift load path at base stories (story 0/1) under net tension | all (Pu < 0) | ASCE 41 Ch. 7 / 10.13 | 🔧 new warning (check itself is outside app scope) |
 | `asce41_rot_ratio_x/y` + parameters | all | ASCE 41-17 Table 10-8 | ✅ |
 
 ## Strength basis (`analysis_type`: linear / nonlinear)

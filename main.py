@@ -393,6 +393,18 @@ def main():
             if fclass in (SMF, GRAVITY):
                 add_warning_flag(all_checks, run_row, 'Vc_zero_rule_x', bool(shear_case['vc_zero_applies_x']), 'ACI 18.7.6.2.1', 'Vc set to zero in x within lo for this load case.')
                 add_warning_flag(all_checks, run_row, 'Vc_zero_rule_y', bool(shear_case['vc_zero_applies_y']), 'ACI 18.7.6.2.1', 'Vc set to zero in y within lo for this load case.')
+
+            # Net axial tension companions: Vc = 0 for the shear ratios of this
+            # case (already applied in shear_case), development/splice demand at
+            # fye, and the uplift load path at base stories.
+            if bool(shear_case.get('vc_zero_tension', False)):
+                add_warning_flag(all_checks, run_row, 'Vc_zero_tension', True, 'ACI 22.5.7', f"Net axial tension (Pu = {Pu_case:.0f} kN): Vc taken as zero for the shear capacity of this load case.")
+                splice_note = ('Column is flagged splice-controlled: lap splices under net tension are a force-controlled, potentially brittle action — verify splice location/length can develop fye.'
+                               if bool(run_row.get('asce_splice_controlled', False)) else
+                               'Verify longitudinal bars are continuous or spliced/developed to yield fye over the clear height and into the joints (force-controlled action under net tension).')
+                add_warning_flag(all_checks, run_row, 'tension_splice_development', True, 'ASCE 41 10.3.5 / ACI 25.4-25.5', splice_note)
+                if str(run_row.get('story', '')).strip() in {'0', '1'}:
+                    add_warning_flag(all_checks, run_row, 'foundation_uplift', True, 'ASCE 41 Ch. 7 force-controlled / 10.13', f"Net tension at base story '{run_row.get('story', '')}': verify the uplift load path — column-to-footing anchorage, footing weight/soil uplift capacity (outside the scope of this checker).")
             if fclass == SMF:
                 add_min_check(all_checks, run_row, 'scwb_top_x', scwb['scwb_top_x_ratio'], 1.0, 'ACI 18.7.3.2', 'Strong-column weak-beam ratio at top joint in x.')
                 add_min_check(all_checks, run_row, 'scwb_bottom_x', scwb['scwb_bottom_x_ratio'], 1.0, 'ACI 18.7.3.2', 'Strong-column weak-beam ratio at bottom joint in x.')
