@@ -2057,7 +2057,16 @@ def main() -> None:
         st.title('RC Column Checker')
         st.caption('ACI 318-25 / ASCE 41  ·  Interactive verification tool')
     with _col_logo:
-        logo_path = ROOT / 'assets' / 'Logo_horizontal_Torrefuerte.png'
+        # Theme-aware logo: white artwork on dark mode, black artwork on light
+        # mode (st.context.theme reflects the theme actually applied in the
+        # browser and reruns the script when it changes).
+        try:
+            _is_dark = st.context.theme.type == 'dark'
+        except Exception:
+            _is_dark = False
+        logo_path = ROOT / 'assets' / ('logo_white_horizontal.png' if _is_dark else 'logo_black_horizontal.png')
+        if not logo_path.exists():
+            logo_path = ROOT / 'assets' / 'Logo_horizontal_Torrefuerte.png'
         if logo_path.exists():
             st.markdown(
                 '<p style="text-align:right; color:#999999; font-size:0.75rem; '
