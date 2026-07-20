@@ -2064,7 +2064,7 @@ def main() -> None:
             _is_dark = st.context.theme.type == 'dark'
         except Exception:
             _is_dark = False
-        logo_path = ROOT / 'assets' / ('logo_white_horizontal.png' if _is_dark else 'logo_black_horizontal.png')
+        logo_path = ROOT / 'assets' / ('logo_white.png' if _is_dark else 'logo_black.png')
         if not logo_path.exists():
             logo_path = ROOT / 'assets' / 'Logo_horizontal_Torrefuerte.png'
         if logo_path.exists():
